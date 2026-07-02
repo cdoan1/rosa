@@ -6,7 +6,7 @@ require (
 	github.com/AlecAivazis/survey/v2 v2.2.15
 	github.com/Masterminds/semver v1.5.0
 	github.com/PuerkitoBio/goquery v1.8.1
-	github.com/aws/aws-sdk-go-v2 v1.42.0
+	github.com/aws/aws-sdk-go-v2 v1.42.1
 	github.com/aws/aws-sdk-go-v2/config v1.32.25
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.24
 	github.com/aws/aws-sdk-go-v2/service/cloudformation v1.72.1
@@ -17,7 +17,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.42.3
 	github.com/aws/aws-sdk-go-v2/service/servicequotas v1.35.7
 	github.com/aws/aws-sdk-go-v2/service/sts v1.43.3
-	github.com/aws/smithy-go v1.27.2
+	github.com/aws/smithy-go v1.27.3
 	github.com/briandowns/spinner v1.11.1
 	github.com/dchest/validator v0.0.0-20191217151620-8e45250f2371
 	github.com/dustin/go-humanize v1.0.1
@@ -58,6 +58,7 @@ require (
 	github.com/lib/pq v1.10.5 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/openshift-online/ocm-api-model/model v0.0.457 // indirect
+	github.com/openshift-online/rosa-hyperfleet-api/sdk v0.0.0-00010101000000-000000000000 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	go.yaml.in/yaml/v2 v2.4.3 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
@@ -135,3 +136,5 @@ require (
 )
 
 replace github.com/golang/glog => github.com/kubermatic/glog-logrus v0.0.0-20180829085450-3fa5b9870d1d
+
+replace github.com/openshift-online/rosa-hyperfleet-api/sdk => github.com/cdoan1/rosa-hyperfleet-api/sdk v0.0.0-20260702140248-7d84b963c2ef
