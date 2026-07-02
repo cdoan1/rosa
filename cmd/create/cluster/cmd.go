@@ -17,6 +17,8 @@ limitations under the License.
 package cluster
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -29,6 +31,8 @@ import (
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	rosasdk "github.com/cdoan1/rosa-hyperfleet-api/sdk/pkg/client"
+	"github.com/cdoan1/rosa-hyperfleet-api/sdk/pkg/types"
 	clustervalidations "github.com/openshift-online/ocm-common/pkg/cluster/validations"
 	idputils "github.com/openshift-online/ocm-common/pkg/idp/utils"
 	passwordValidator "github.com/openshift-online/ocm-common/pkg/idp/validations"
@@ -36,6 +40,7 @@ import (
 	kmsArnRegexpValidator "github.com/openshift-online/ocm-common/pkg/resource/validations"
 	accountsv1 "github.com/openshift-online/ocm-sdk-go/accountsmgmt/v1"
 	v1 "github.com/openshift-online/ocm-sdk-go/clustersmgmt/v1"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
@@ -201,6 +206,7 @@ var args struct {
 
 	// Hypershift options:
 	hostedClusterEnabled        bool
+	hyperfleet                  bool
 	billingAccount              string
 	noCni                       bool
 	additionalAllowedPrincipals []string
@@ -775,6 +781,13 @@ func initFlags(cmd *cobra.Command) {
 		"Enable the use of Hosted Control Planes",
 	)
 
+	flags.BoolVar(
+		&args.hyperfleet,
+		"hyperfleet",
+		false,
+		"Create cluster using the hyperfleet platform API (implies --hosted-cp)",
+	)
+
 	flags.StringVar(&args.machinePoolRootDiskSize,
 		workerDiskSizeFlag,
 		"",
@@ -1004,6 +1017,18 @@ func run(cmd *cobra.Command, _ []string) {
 		}
 	}
 
+	// If hyperfleet flag is set, enable hostedClusterEnabled
+	if args.hyperfleet {
+		args.hostedClusterEnabled = true
+		// Hyperfleet requires reusable OIDC configs with pre-created operator roles
+		if args.oidcConfigId == "" {
+			r.Reporter.Errorf("Hyperfleet clusters require a reusable OIDC configuration ID.\n" +
+				"Create one with: rosa create oidc-config --managed\n" +
+				"Then use it with: --oidc-config-id <id>")
+			os.Exit(1)
+		}
+	}
+
 	// validate flags for cluster admin and private ingress/private API
 	isHostedCP := args.hostedClusterEnabled
 	if isHostedCP {
@@ -1014,9 +1039,13 @@ func run(cmd *cobra.Command, _ []string) {
 		validateHcpFlags(cmd, r.Reporter)
 	}
 
-	supportedRegions, err := r.OCMClient.GetDatabaseRegionList()
-	if err != nil {
-		r.Reporter.Errorf("Unable to retrieve supported regions: %v", err)
+	var supportedRegions []string
+	// Skip OCM region check for hyperfleet clusters - the hyperfleet API handles region validation
+	if !args.hyperfleet {
+		supportedRegions, err = r.OCMClient.GetDatabaseRegionList()
+		if err != nil {
+			r.Reporter.Errorf("Unable to retrieve supported regions: %v", err)
+		}
 	}
 	awsClient := aws.GetAWSClientForUserRegion(r.Reporter, r.Logger, supportedRegions, args.useLocalCredentials)
 	r.AWSClient = awsClient
@@ -1999,12 +2028,31 @@ func run(cmd *cobra.Command, _ []string) {
 				r.Reporter.Errorf("%v", err)
 				os.Exit(1)
 			} else {
+				// For reusable OIDC configs, validate trust relationship even if roles don't exist
 				err = ocm.ValidateOperatorRolesMatchOidcProvider(r.Reporter, awsClient, computedOperatorIamRoleList,
 					oidcConfig.IssuerUrl(), ocm.GetVersionMinor(version), expectedOperatorRolePath, managedPolicies, true)
 				if err != nil {
 					r.Reporter.Errorf("%v", err)
 					os.Exit(1)
 				}
+			}
+		} else if oidcConfig != nil && oidcConfig.Reusable() {
+			// Even if roles exist, validate they trust the correct OIDC provider
+			// This prevents using operator roles created for a different OIDC config
+			if !output.HasFlag() && r.Reporter.IsTerminal() {
+				r.Reporter.Infof("Validating operator roles trust relationship with OIDC provider...")
+			}
+			err = ocm.ValidateOperatorRolesMatchOidcProvider(r.Reporter, awsClient, computedOperatorIamRoleList,
+				oidcConfig.IssuerUrl(), ocm.GetVersionMinor(version), expectedOperatorRolePath, managedPolicies, true)
+			if err != nil {
+				r.Reporter.Errorf("Operator roles do not match OIDC configuration '%s': %v\n\n"+
+					"The operator roles with prefix '%s' may have been created for a different OIDC config.\n"+
+					"To fix this:\n"+
+					"  1. Create operator roles for this OIDC config:\n"+
+					"     rosa create operator-roles --prefix %s --oidc-config-id %s --hosted-cp\n"+
+					"  2. Or use a different operator-roles-prefix that matches this OIDC config",
+					oidcConfig.ID(), err, operatorRolesPrefix, operatorRolesPrefix, oidcConfig.ID())
+				os.Exit(1)
 			}
 		}
 		err = validateUniqueIamRoleArnsForStsCluster(roleARNs, computedOperatorIamRoleList)
@@ -2079,46 +2127,58 @@ func run(cmd *cobra.Command, _ []string) {
 	}
 	// Filter regions by OCP version for displaying in interactive mode
 	var versionFilter string
-	if interactive.Enabled() {
-		versionFilter = version
-	} else {
-		versionFilter = ""
-	}
-	regionList, regionAZ, err := r.OCMClient.GetRegionList(multiAZ, roleARN, externalID, versionFilter,
-		awsClient, isHostedCP, shardPinningEnabled)
-	if err != nil {
-		r.Reporter.Errorf(fmt.Sprintf("%s", err))
-		os.Exit(1)
-	}
-	if region == "" {
-		r.Reporter.Errorf("Expected a valid AWS region")
-		os.Exit(1)
-	} else if found := helper.Contains(regionList, region); isHostedCP && !shardPinningEnabled && !found {
-		r.Reporter.Warnf("Region '%s' not currently available for Hosted Control Plane cluster.", region)
-		interactive.Enable()
-	}
+	var regionList []string
+	var regionAZ map[string]bool
 
-	if interactive.Enabled() {
-		region, err = interactive.GetOption(interactive.Input{
-			Question: "AWS region",
-			Help:     cmd.Flags().Lookup("region").Usage,
-			Options:  regionList,
-			Default:  region,
-			Required: true,
-		})
+	// Skip OCM region validation for hyperfleet clusters - the hyperfleet API handles region validation
+	if !args.hyperfleet {
+		if interactive.Enabled() {
+			versionFilter = version
+		} else {
+			versionFilter = ""
+		}
+		regionList, regionAZ, err = r.OCMClient.GetRegionList(multiAZ, roleARN, externalID, versionFilter,
+			awsClient, isHostedCP, shardPinningEnabled)
 		if err != nil {
-			r.Reporter.Errorf("Expected a valid AWS region: %s", err)
+			r.Reporter.Errorf(fmt.Sprintf("%s", err))
 			os.Exit(1)
 		}
-	}
-	if supportsMultiAZ, found := regionAZ[region]; found {
-		if !supportsMultiAZ && multiAZ {
-			r.Reporter.Errorf("Region '%s' does not support multiple availability zones", region)
+		if region == "" {
+			r.Reporter.Errorf("Expected a valid AWS region")
+			os.Exit(1)
+		} else if found := helper.Contains(regionList, region); isHostedCP && !shardPinningEnabled && !found {
+			r.Reporter.Warnf("Region '%s' not currently available for Hosted Control Plane cluster.", region)
+			interactive.Enable()
+		}
+
+		if interactive.Enabled() {
+			region, err = interactive.GetOption(interactive.Input{
+				Question: "AWS region",
+				Help:     cmd.Flags().Lookup("region").Usage,
+				Options:  regionList,
+				Default:  region,
+				Required: true,
+			})
+			if err != nil {
+				r.Reporter.Errorf("Expected a valid AWS region: %s", err)
+				os.Exit(1)
+			}
+		}
+		if supportsMultiAZ, found := regionAZ[region]; found {
+			if !supportsMultiAZ && multiAZ {
+				r.Reporter.Errorf("Region '%s' does not support multiple availability zones", region)
+				os.Exit(1)
+			}
+		} else {
+			r.Reporter.Errorf("Region '%s' is not supported for this AWS account", region)
 			os.Exit(1)
 		}
 	} else {
-		r.Reporter.Errorf("Region '%s' is not supported for this AWS account", region)
-		os.Exit(1)
+		// For hyperfleet clusters, just validate that a region was provided
+		if region == "" {
+			r.Reporter.Errorf("Expected a valid AWS region")
+			os.Exit(1)
+		}
 	}
 
 	awsClient, err = aws.NewClient().
@@ -2410,7 +2470,8 @@ func run(cmd *cobra.Command, _ []string) {
 		defaultOptions := make([]string, len(subnetIDs))
 
 		// Verify subnets provided exist.
-		if subnetsProvided {
+		// Skip for hyperfleet - the platform API will validate subnets
+		if subnetsProvided && !args.hyperfleet {
 			for _, subnetArg := range subnetIDs {
 				// Check if subnet is in the excluded list of public subnets
 				if slices.Contains(excludedPublicSubnets, subnetArg) {
@@ -2486,18 +2547,33 @@ func run(cmd *cobra.Command, _ []string) {
 
 		// Validate subnets in the case the user has provided them using the `args.subnetIDs`
 		if useExistingVPC || subnetsProvided {
-			if !isHostedCP {
+			// Skip subnet validation for hyperfleet clusters - the hyperfleet platform API
+			// will validate subnets using its own AWS credentials
+			// TODO: Add subnet validation for hyperfleet once the platform API has proper
+			// permissions to describe subnets in customer accounts
+			if args.hyperfleet {
+				if !output.HasFlag() && r.Reporter.IsTerminal() {
+					r.Reporter.Warnf("Skipping subnet validation - hyperfleet platform API will validate subnets")
+				}
+				// For hyperfleet, assume all provided subnets are private since we can't validate
+				// The hyperfleet platform API will do the actual validation
+				privateSubnetsCount = len(subnetIDs)
+			} else if !isHostedCP {
 				err = ocm.ValidateSubnetsCount(multiAZ, privateLink, len(subnetIDs))
+				if err != nil {
+					r.Reporter.Errorf("%s", err)
+					os.Exit(1)
+				}
 			} else {
 				// Hosted cluster should validate that
 				// - Public hosted clusters have at least one public subnet
 				// - Private hosted clusters have all subnets private, except when those clusters have public ingress
 				privateSubnetsCount, err = ocm.ValidateHostedClusterSubnets(awsClient, private, subnetIDs,
 					privateIngress)
-			}
-			if err != nil {
-				r.Reporter.Errorf("%s", err)
-				os.Exit(1)
+				if err != nil {
+					r.Reporter.Errorf("%s", err)
+					os.Exit(1)
+				}
 			}
 		}
 
@@ -2714,31 +2790,38 @@ func run(cmd *cobra.Command, _ []string) {
 
 	// Compute node instance type:
 	computeMachineType := args.computeMachineType
-	computeMachineTypeList, err := r.OCMClient.GetAvailableMachineTypesInRegion(region, availabilityZones, roleARN,
-		awsClient, externalID)
-	if err != nil {
-		r.Reporter.Errorf(fmt.Sprintf("%s", err))
-		os.Exit(1)
+	var computeMachineTypeList ocm.MachineTypeList
+	// Skip OCM machine type check for hyperfleet clusters - the hyperfleet API handles machine type validation
+	if !args.hyperfleet {
+		computeMachineTypeList, err = r.OCMClient.GetAvailableMachineTypesInRegion(region, availabilityZones, roleARN,
+			awsClient, externalID)
+		if err != nil {
+			r.Reporter.Errorf(fmt.Sprintf("%s", err))
+			os.Exit(1)
+		}
 	}
 	if computeMachineType == "" {
 		computeMachineType = defaultComputeMachineType
 	}
-	if interactive.Enabled() {
-		computeMachineType, err = interactive.GetOption(interactive.Input{
-			Question: "Compute nodes instance type",
-			Help:     cmd.Flags().Lookup("compute-machine-type").Usage,
-			Options:  computeMachineTypeList.GetAvailableIDs(multiAZ).IDs(),
-			Default:  computeMachineType,
-		})
+	// Skip OCM machine type validation for hyperfleet clusters
+	if !args.hyperfleet {
+		if interactive.Enabled() {
+			computeMachineType, err = interactive.GetOption(interactive.Input{
+				Question: "Compute nodes instance type",
+				Help:     cmd.Flags().Lookup("compute-machine-type").Usage,
+				Options:  computeMachineTypeList.GetAvailableIDs(multiAZ).IDs(),
+				Default:  computeMachineType,
+			})
+			if err != nil {
+				r.Reporter.Errorf("Expected a valid machine type: %s", err)
+				os.Exit(1)
+			}
+		}
+		err = computeMachineTypeList.ValidateMachineType(computeMachineType, multiAZ)
 		if err != nil {
 			r.Reporter.Errorf("Expected a valid machine type: %s", err)
 			os.Exit(1)
 		}
-	}
-	err = computeMachineTypeList.ValidateMachineType(computeMachineType, multiAZ)
-	if err != nil {
-		r.Reporter.Errorf("Expected a valid machine type: %s", err)
-		os.Exit(1)
 	}
 
 	isAutoscalingSet := cmd.Flags().Changed("enable-autoscaling")
@@ -3637,14 +3720,30 @@ func run(cmd *cobra.Command, _ []string) {
 		r.Reporter.Infof("To view a list of clusters and their status, run 'rosa list clusters'")
 	}
 
-	if !clusterConfig.IsSTS {
+	// Skip OCM pending cluster check for hyperfleet clusters
+	if !clusterConfig.IsSTS && !args.hyperfleet {
 		if err := r.OCMClient.EnsureNoPendingClusters(awsCreator); err != nil {
 			r.Reporter.Errorf("%v", err)
 			os.Exit(1)
 		}
 	}
 
-	cluster, err := r.OCMClient.CreateCluster(clusterConfig)
+	// If hyperfleet flag is set, use hyperfleet platform API
+	var cluster *v1.Cluster
+	if args.hyperfleet {
+		// Display hyperfleet-specific OIDC/operator role info
+		if !output.HasFlag() && r.Reporter.IsTerminal() && oidcConfig != nil {
+			r.Reporter.Infof("Using reusable OIDC configuration: %s", oidcConfig.ID())
+			r.Reporter.Infof("OIDC Issuer URL: %s", oidcConfig.IssuerUrl())
+			if len(computedOperatorIamRoleList) > 0 {
+				r.Reporter.Infof("Validated %d operator roles with prefix '%s'",
+					len(computedOperatorIamRoleList), operatorRolesPrefix)
+			}
+		}
+		cluster, err = createHyperfleetCluster(r, clusterConfig, awsCreator)
+	} else {
+		cluster, err = r.OCMClient.CreateCluster(clusterConfig)
+	}
 	if err != nil {
 		if args.dryRun {
 			r.Reporter.Errorf("Creating cluster '%s' should fail: %s", clusterName, err)
@@ -3670,9 +3769,24 @@ func run(cmd *cobra.Command, _ []string) {
 	}
 
 	arguments.DisableRegionDeprecationWarning = true // disable region deprecation warning
-	clusterdescribe.Cmd.Run(clusterdescribe.Cmd, []string{cluster.ID()})
+	// Skip OCM describe for hyperfleet clusters - use hyperfleet API to check status
+	if args.hyperfleet {
+		// For hyperfleet clusters, display basic info from the created cluster
+		r.Reporter.Infof("\nCluster ID:    %s", cluster.ID())
+		r.Reporter.Infof("Cluster Name:  %s", cluster.Name())
+		r.Reporter.Infof("State:         %s", cluster.State())
+		creationTime, creationTimeOk := cluster.GetCreationTimestamp()
+		if creationTimeOk {
+			r.Reporter.Infof("Created:       %s", creationTime.Format("2006-01-02 15:04:05"))
+		}
+		r.Reporter.Infof("\nTo check the status of your hyperfleet cluster, run:")
+		r.Reporter.Infof("  rosa list clusters --hyperfleet")
+	} else {
+		clusterdescribe.Cmd.Run(clusterdescribe.Cmd, []string{cluster.ID()})
+	}
 
-	if isSTS {
+	// Skip STS post-creation steps for hyperfleet clusters
+	if isSTS && !args.hyperfleet {
 		if mode != "" {
 			if !output.HasFlag() || r.Reporter.IsTerminal() {
 				r.Reporter.Infof("Preparing to create operator roles.")
@@ -3732,18 +3846,21 @@ func run(cmd *cobra.Command, _ []string) {
 		}
 	}
 
-	if args.watch {
-		installLogs.Cmd.Run(installLogs.Cmd, []string{clusterName})
-		arguments.DisableRegionDeprecationWarning = false // no longer disable deprecation warning
-	} else if !output.HasFlag() || r.Reporter.IsTerminal() {
-		r.Reporter.Infof(
-			"To determine when your cluster is Ready, run 'rosa describe cluster -c %s'.",
-			clusterName,
-		)
-		r.Reporter.Infof(
-			"To watch your cluster installation logs, run 'rosa logs install -c %s --watch'.",
-			clusterName,
-		)
+	// Skip watch/logs for hyperfleet clusters - they use different status tracking
+	if !args.hyperfleet {
+		if args.watch {
+			installLogs.Cmd.Run(installLogs.Cmd, []string{clusterName})
+			arguments.DisableRegionDeprecationWarning = false // no longer disable deprecation warning
+		} else if !output.HasFlag() || r.Reporter.IsTerminal() {
+			r.Reporter.Infof(
+				"To determine when your cluster is Ready, run 'rosa describe cluster -c %s'.",
+				clusterName,
+			)
+			r.Reporter.Infof(
+				"To watch your cluster installation logs, run 'rosa logs install -c %s --watch'.",
+				clusterName,
+			)
+		}
 	}
 }
 
@@ -4622,4 +4739,203 @@ func validateUniqueIamRoleArnsForStsCluster(accountRoles []string, operatorRoles
 	}
 
 	return nil
+}
+
+// createHyperfleetCluster creates a cluster using the hyperfleet platform API
+func createHyperfleetCluster(r *rosa.Runtime, clusterConfig ocm.Spec, awsCreator *aws.Creator) (*v1.Cluster, error) {
+	// Get base URL from environment
+	baseURL := os.Getenv("HYPERFLEET_API_URL")
+	if baseURL == "" {
+		return nil, fmt.Errorf("HYPERFLEET_API_URL environment variable is required")
+	}
+
+	// Extract region from API Gateway URL
+	region := extractRegionFromAPIGatewayURL(baseURL)
+	if envRegion := os.Getenv("HYPERFLEET_API_REGION"); envRegion != "" {
+		region = envRegion
+	}
+	if region == "" {
+		return nil, fmt.Errorf("could not determine API region from URL: %s", baseURL)
+	}
+
+	r.Logger.Debugf("Creating hyperfleet cluster via API: %s (region: %s)", baseURL, region)
+
+	// Create hyperfleet SDK client
+	client, err := rosasdk.NewClient(
+		rosasdk.WithBaseURL(baseURL),
+		rosasdk.WithRegion(region),
+		rosasdk.WithUserAgent("rosa-cli"),
+		rosasdk.WithAccountID(awsCreator.AccountID),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create hyperfleet client: %w", err)
+	}
+
+	// Build cluster create request from clusterConfig
+	additionalProps := make(map[string]interface{})
+
+	// Map ROSA cluster configuration to additional properties
+	if clusterConfig.RoleARN != "" {
+		additionalProps["installer_role_arn"] = clusterConfig.RoleARN
+	}
+	if clusterConfig.SupportRoleARN != "" {
+		additionalProps["support_role_arn"] = clusterConfig.SupportRoleARN
+	}
+	if clusterConfig.ControlPlaneRoleARN != "" {
+		additionalProps["controlPlaneOperatorARN"] = clusterConfig.ControlPlaneRoleARN
+	}
+	if clusterConfig.WorkerRoleARN != "" {
+		additionalProps["nodePoolManagementARN"] = clusterConfig.WorkerRoleARN
+	}
+	if clusterConfig.OperatorIAMRoles != nil && len(clusterConfig.OperatorIAMRoles) > 0 {
+		additionalProps["operator_iam_roles"] = clusterConfig.OperatorIAMRoles
+	}
+	if clusterConfig.OidcConfigId != "" {
+		additionalProps["oidc_config_id"] = clusterConfig.OidcConfigId
+	}
+	if clusterConfig.Region != "" {
+		additionalProps["region"] = clusterConfig.Region
+	}
+	if clusterConfig.Version != "" {
+		additionalProps["version"] = clusterConfig.Version
+	}
+	if clusterConfig.ChannelGroup != "" {
+		additionalProps["channel_group"] = clusterConfig.ChannelGroup
+	}
+	if len(clusterConfig.SubnetIds) > 0 {
+		additionalProps["subnet_ids"] = clusterConfig.SubnetIds
+	}
+	if len(clusterConfig.AvailabilityZones) > 0 {
+		additionalProps["availability_zones"] = clusterConfig.AvailabilityZones
+	}
+	if clusterConfig.MultiAZ {
+		additionalProps["multi_az"] = clusterConfig.MultiAZ
+	}
+	if clusterConfig.ComputeMachineType != "" {
+		additionalProps["compute_machine_type"] = clusterConfig.ComputeMachineType
+	}
+	if clusterConfig.ComputeNodes != 0 {
+		additionalProps["compute_nodes"] = clusterConfig.ComputeNodes
+	}
+	if clusterConfig.Autoscaling {
+		additionalProps["autoscaling"] = clusterConfig.Autoscaling
+		additionalProps["min_replicas"] = clusterConfig.MinReplicas
+		additionalProps["max_replicas"] = clusterConfig.MaxReplicas
+	}
+	if clusterConfig.DryRun != nil && *clusterConfig.DryRun {
+		additionalProps["dry_run"] = true
+	}
+
+	req := &types.ClusterCreateRequest{
+		Name: clusterConfig.Name,
+		Spec: types.ClusterCreateRequest_Spec{
+			AdditionalProperties: additionalProps,
+		},
+	}
+
+	// Log the key mappings for verification
+	r.Logger.Debugf("Hyperfleet API request mapping:")
+	r.Logger.Debugf("  --role-arn → spec.installer_role_arn: %s", clusterConfig.RoleARN)
+	r.Logger.Debugf("  --support-role-arn → spec.support_role_arn: %s", clusterConfig.SupportRoleARN)
+	r.Logger.Debugf("  --controlplane-iam-role-arn → spec.controlPlaneOperatorARN: %s", clusterConfig.ControlPlaneRoleARN)
+	r.Logger.Debugf("  --worker-iam-role-arn → spec.nodePoolManagementARN: %s", clusterConfig.WorkerRoleARN)
+	r.Logger.Debugf("  --oidc-config-id → spec.oidc_config_id: %s", clusterConfig.OidcConfigId)
+	r.Logger.Debugf("  --region → spec.region: %s", clusterConfig.Region)
+	r.Logger.Debugf("  Total spec properties: %d", len(additionalProps))
+
+	// Print full request payload in debug mode
+	if r.Logger.IsLevelEnabled(logrus.DebugLevel) {
+		payloadBytes, err := json.MarshalIndent(req, "", "  ")
+		if err != nil {
+			r.Logger.Debugf("Failed to marshal request payload for logging: %v", err)
+		} else {
+			r.Logger.Debugf("Full request payload being sent to hyperfleet API:")
+			r.Logger.Debugf("\n%s", string(payloadBytes))
+		}
+	}
+
+	// Display hyperfleet API URL
+	r.Reporter.Infof("Hyperfleet API: %s (region: %s)", baseURL, region)
+
+	if !r.Reporter.IsTerminal() {
+		r.Reporter.Infof("Creating hyperfleet cluster '%s' with installer role: %s",
+			clusterConfig.Name, clusterConfig.RoleARN)
+	}
+
+	// Create cluster via hyperfleet API
+	r.Logger.Debugf("Calling CreateCluster API for cluster: %s", clusterConfig.Name)
+	hyperfleetCluster, err := client.CreateCluster(context.Background(), req)
+	if err != nil {
+		// Provide helpful context for common errors
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "operator") || strings.Contains(errMsg, "role") {
+			return nil, fmt.Errorf("failed to create cluster via hyperfleet API: %w\n\n"+
+				"Operator role validation failed. Ensure:\n"+
+				"  1. Operator roles exist with prefix '%s'\n"+
+				"  2. They were created with OIDC config ID '%s'\n"+
+				"  3. Create them with: rosa create operator-roles --prefix %s --oidc-config-id %s --hosted-cp",
+				err, clusterConfig.Name, clusterConfig.OidcConfigId, clusterConfig.Name, clusterConfig.OidcConfigId)
+		}
+		if strings.Contains(errMsg, "oidc") || strings.Contains(errMsg, "issuer") {
+			return nil, fmt.Errorf("failed to create cluster via hyperfleet API: %w\n\n"+
+				"OIDC configuration validation failed. Ensure:\n"+
+				"  1. The OIDC config '%s' is managed (reusable)\n"+
+				"  2. Create it with: rosa create oidc-config --managed",
+				err, clusterConfig.OidcConfigId)
+		}
+		return nil, fmt.Errorf("failed to create cluster via hyperfleet API: %w", err)
+	}
+
+	r.Logger.Debugf("Cluster created successfully: ID=%s, Name=%s", hyperfleetCluster.Id, hyperfleetCluster.Name)
+	r.Reporter.Infof("Hyperfleet cluster created: %s (ID: %s)", hyperfleetCluster.Name, hyperfleetCluster.Id)
+
+	// Convert hyperfleet cluster to OCM cluster format for compatibility
+	// This is a minimal conversion to allow the existing workflow to continue
+	cluster, err := convertHyperfleetClusterToOCM(hyperfleetCluster)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert hyperfleet cluster to OCM format: %w", err)
+	}
+
+	return cluster, nil
+}
+
+// convertHyperfleetClusterToOCM converts a hyperfleet cluster to OCM cluster format
+func convertHyperfleetClusterToOCM(hfCluster *types.Cluster) (*v1.Cluster, error) {
+	// Create a minimal OCM cluster object for compatibility
+	builder := v1.NewCluster().
+		ID(hfCluster.Id).
+		Name(hfCluster.Name).
+		CreationTimestamp(hfCluster.CreatedAt)
+
+	// Set state based on hyperfleet cluster status
+	state := v1.ClusterStateInstalling
+	builder.State(state)
+
+	cluster, err := builder.Build()
+	if err != nil {
+		return nil, fmt.Errorf("failed to build OCM cluster object: %w", err)
+	}
+
+	return cluster, nil
+}
+
+// extractRegionFromAPIGatewayURL extracts the AWS region from an API Gateway URL
+// Format: https://{api-id}.execute-api.{region}.amazonaws.com/{stage}
+func extractRegionFromAPIGatewayURL(apiURL string) string {
+	if !strings.Contains(apiURL, ".execute-api.") {
+		return ""
+	}
+
+	parts := strings.Split(apiURL, ".execute-api.")
+	if len(parts) < 2 {
+		return ""
+	}
+
+	regionPart := parts[1]
+	dotIndex := strings.Index(regionPart, ".")
+	if dotIndex == -1 {
+		return ""
+	}
+
+	return regionPart[:dotIndex]
 }

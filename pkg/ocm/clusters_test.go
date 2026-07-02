@@ -58,7 +58,7 @@ var _ = Context("List Clusters", func() {
 			role.RoleType = aws.InstallerAccountRoleType
 			role.RoleARN = "arn:aws:iam::765374464689:role/test-Installer-Role"
 
-			query, err := getAccountRoleClusterFilter(creator, role)
+			query, err := getAccountRoleClusterFilter(creator, role, false)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(query).To(Equal("product.id = 'rosa' AND " +
 				"(properties.rosa_creator_arn LIKE 'arn:%:12345678:%' OR aws.sts.role_arn LIKE 'arn:%:12345678:%') AND " +
@@ -70,7 +70,7 @@ var _ = Context("List Clusters", func() {
 			role.RoleType = aws.SupportAccountRoleType
 			role.RoleARN = "arn:aws:iam::765374464689:role/test-Support-Role"
 
-			query, err := getAccountRoleClusterFilter(creator, role)
+			query, err := getAccountRoleClusterFilter(creator, role, false)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(query).To(Equal("product.id = 'rosa' AND " +
 				"(properties.rosa_creator_arn LIKE 'arn:%:12345678:%' OR aws.sts.role_arn LIKE 'arn:%:12345678:%') AND " +
@@ -82,7 +82,7 @@ var _ = Context("List Clusters", func() {
 			role.RoleType = aws.ControlPlaneAccountRoleType
 			role.RoleARN = "arn:aws:iam::765374464689:role/test-ControlPlane-Role"
 
-			query, err := getAccountRoleClusterFilter(creator, role)
+			query, err := getAccountRoleClusterFilter(creator, role, false)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(query).To(Equal("product.id = 'rosa' AND " +
 				"(properties.rosa_creator_arn LIKE 'arn:%:12345678:%' OR aws.sts.role_arn LIKE 'arn:%:12345678:%') AND " +
@@ -94,7 +94,7 @@ var _ = Context("List Clusters", func() {
 			role.RoleType = aws.WorkerAccountRoleType
 			role.RoleARN = "arn:aws:iam::765374464689:role/test-Worker-Role"
 
-			query, err := getAccountRoleClusterFilter(creator, role)
+			query, err := getAccountRoleClusterFilter(creator, role, false)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(query).To(Equal("product.id = 'rosa' AND " +
 				"(properties.rosa_creator_arn LIKE 'arn:%:12345678:%' OR aws.sts.role_arn LIKE 'arn:%:12345678:%') AND " +
@@ -105,7 +105,7 @@ var _ = Context("List Clusters", func() {
 			role.RoleType = "foo"
 			role.RoleARN = "arn:aws:iam::765374464689:role/test-Worker-Role"
 
-			_, err := getAccountRoleClusterFilter(creator, role)
+			_, err := getAccountRoleClusterFilter(creator, role, false)
 			Expect(err).To(HaveOccurred())
 		})
 

@@ -195,7 +195,8 @@ func GetAWSClientForUserRegion(reporter rprtr.Logger, logger *logrus.Logger,
 		reporter.Errorf("AWS Region not set")
 		os.Exit(1)
 	}
-	if !helper.Contains(supportedRegions, awsRegionInUserConfig) {
+	// Skip region validation if supportedRegions is empty (e.g., for hyperfleet clusters)
+	if len(supportedRegions) > 0 && !helper.Contains(supportedRegions, awsRegionInUserConfig) {
 		reporter.Errorf("Unsupported region '%s', available regions: %s",
 			awsRegionInUserConfig, helper.SliceToSortedString(supportedRegions))
 		os.Exit(1)
@@ -217,7 +218,8 @@ func GetAWSClientForUserRegion(reporter rprtr.Logger, logger *logrus.Logger,
 	}
 
 	if regionUsedForInit != awsRegionInUserConfig {
-		if !helper.Contains(supportedRegions, regionUsedForInit) {
+		// Skip region validation if supportedRegions is empty (e.g., for hyperfleet clusters)
+		if len(supportedRegions) > 0 && !helper.Contains(supportedRegions, regionUsedForInit) {
 			reporter.Errorf("Unsupported region '%s', available regions: %s",
 				regionUsedForInit, helper.SliceToSortedString(supportedRegions))
 			os.Exit(1)

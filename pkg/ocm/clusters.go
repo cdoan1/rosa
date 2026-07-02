@@ -212,10 +212,10 @@ type Volume struct {
 }
 
 type OperatorIAMRole struct {
-	Name      string
-	Namespace string
-	RoleARN   string
-	Path      string
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
+	RoleARN   string `json:"role_arn"`
+	Path      string `json:"path,omitempty"`
 }
 
 func NewOperatorIamRoleFromCmv1(operatorIAMRole *cmv1.OperatorIAMRole) (*OperatorIAMRole, error) {
@@ -237,6 +237,10 @@ type Hypershift struct {
 
 // Generate a query that filters clusters running on the current AWS session account
 func getClusterFilter(creator *aws.Creator) string {
+	return getClusterFilterWithHyperfleet(creator, false)
+}
+
+func getClusterFilterWithHyperfleet(creator *aws.Creator, hyperfleet bool) string {
 	filter := "product.id = 'rosa'"
 	if creator != nil {
 		filter = fmt.Sprintf("%s AND (properties.%s LIKE 'arn:%%:%s:%%' OR aws.sts.role_arn LIKE 'arn:%%:%s:%%')",
@@ -244,6 +248,9 @@ func getClusterFilter(creator *aws.Creator) string {
 			ocmConsts.CreatorArn,
 			creator.AccountID,
 			creator.AccountID)
+	}
+	if hyperfleet {
+		filter = fmt.Sprintf("%s AND hypershift.enabled = 'true'", filter)
 	}
 	return filter
 }
@@ -299,8 +306,8 @@ var accountRoleTypeFieldMap = map[string]string{
 	aws.WorkerAccountRoleType:       "aws.sts.instance_iam_roles.worker_role_arn",
 }
 
-func getAccountRoleClusterFilter(aws *aws.Creator, role aws.Role) (string, error) {
-	query := getClusterFilter(aws)
+func getAccountRoleClusterFilter(aws *aws.Creator, role aws.Role, hyperfleet bool) (string, error) {
+	query := getClusterFilterWithHyperfleet(aws, hyperfleet)
 	accountRoleField := accountRoleTypeFieldMap[role.RoleType]
 	if accountRoleField == "" {
 		return "",
@@ -311,8 +318,8 @@ func getAccountRoleClusterFilter(aws *aws.Creator, role aws.Role) (string, error
 	return fmt.Sprintf("%s AND %s='%s'", query, accountRoleField, role.RoleARN), nil
 }
 
-func (c *Client) GetClustersUsingAccountRole(aws *aws.Creator, role aws.Role, count int) ([]*cmv1.Cluster, error) {
-	query, err := getAccountRoleClusterFilter(aws, role)
+func (c *Client) GetClustersUsingAccountRole(aws *aws.Creator, role aws.Role, count int, hyperfleet bool) ([]*cmv1.Cluster, error) {
+	query, err := getAccountRoleClusterFilter(aws, role, hyperfleet)
 	if err != nil {
 		return nil, err
 	}
@@ -352,8 +359,8 @@ func (c *Client) queryClusters(query string, count int) (clusters []*cmv1.Cluste
 }
 
 // Pass 0 to get all clusters
-func (c *Client) GetClusters(creator *aws.Creator, count int) (clusters []*cmv1.Cluster, err error) {
-	return c.queryClusters(getClusterFilter(creator), count)
+func (c *Client) GetClusters(creator *aws.Creator, count int, hyperfleet bool) (clusters []*cmv1.Cluster, err error) {
+	return c.queryClusters(getClusterFilterWithHyperfleet(creator, hyperfleet), count)
 }
 
 func (c *Client) GetAllClusters(creator *aws.Creator) (clusters []*cmv1.Cluster, err error) {
