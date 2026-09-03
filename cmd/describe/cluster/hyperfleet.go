@@ -53,6 +53,12 @@ func runHyperfleetDescribe(r *rosa.Runtime, cmd *cobra.Command, argv []string) {
 		exitFn(1)
 	}
 
+	// Debug: Uncomment to check what we're receiving from the API
+	// fmt.Fprintf(os.Stderr, "DEBUG: NetworkType: '%s'\n", cluster.Spec.HostedCluster.Networking.NetworkType)
+	// fmt.Fprintf(os.Stderr, "DEBUG: ServiceNetwork count: %d\n", len(cluster.Spec.HostedCluster.Networking.ServiceNetwork))
+	// fmt.Fprintf(os.Stderr, "DEBUG: MachineNetwork count: %d\n", len(cluster.Spec.HostedCluster.Networking.MachineNetwork))
+	// fmt.Fprintf(os.Stderr, "DEBUG: ClusterNetwork count: %d\n", len(cluster.Spec.HostedCluster.Networking.ClusterNetwork))
+
 	if output.HasFlag() {
 		m := hfClusterToMap(cluster)
 		if err := output.Print(m); err != nil {
@@ -82,16 +88,21 @@ func hfClusterToMap(c *v1alpha1.Cluster) map[string]interface{} {
 		rolesRef["nodePoolManagementARN"] = ref.NodePoolManagementARN
 	}
 
+	spec := map[string]interface{}{
+		"oidc_issuer": c.Spec.HostedCluster.IssuerURL,
+		"roles_ref":   rolesRef,
+		// TODO: Uncomment when platform-api exposes these fields
+		// "controllerAvailabilityPolicy":       string(c.Spec.HostedCluster.ControllerAvailabilityPolicy),
+		// "infrastructureAvailabilityPolicy":   string(c.Spec.HostedCluster.InfrastructureAvailabilityPolicy),
+	}
+
 	m := map[string]interface{}{
 		"id":            string(c.UID),
 		"name":          c.Name,
 		"control_plane": "ROSA Service Hosted",
 		"state":         string(c.Status.Phase),
 		"created_at":    c.CreationTimestamp.UTC().Format(time.RFC3339),
-		"spec": map[string]interface{}{
-			"oidc_issuer": c.Spec.HostedCluster.IssuerURL,
-			"roles_ref":   rolesRef,
-		},
+		"spec":          spec,
 	}
 
 	if aws != nil {
@@ -117,6 +128,67 @@ func hfClusterToMap(c *v1alpha1.Cluster) map[string]interface{} {
 	}
 	if c.Spec.ExpirationTimestamp != nil {
 		m["expiration"] = c.Spec.ExpirationTimestamp.UTC().Format(time.RFC3339)
+	}
+
+	// Add DNS information
+	dns := make(map[string]interface{})
+	if c.Status.ControlPlaneEndpoint.Host != "" {
+		dns["api_endpoint"] = c.Status.ControlPlaneEndpoint.Host
+		// Extract base domain from the API endpoint if possible
+		// API endpoint typically looks like: api.<cluster-name>.<base-domain>
+		parts := strings.SplitN(c.Status.ControlPlaneEndpoint.Host, ".", 3)
+		if len(parts) >= 3 {
+			dns["cluster_domain"] = strings.Join(parts[1:], ".")
+			dns["base_domain"] = parts[2]
+		}
+	}
+	if len(dns) > 0 {
+		m["dns"] = dns
+	}
+
+	// Add Network information
+	network := make(map[string]interface{})
+	if c.Spec.HostedCluster.Networking.NetworkType != "" {
+		network["type"] = string(c.Spec.HostedCluster.Networking.NetworkType)
+	}
+
+	// Service CIDR
+	if len(c.Spec.HostedCluster.Networking.ServiceNetwork) > 0 {
+		serviceCIDRs := make([]string, 0, len(c.Spec.HostedCluster.Networking.ServiceNetwork))
+		for _, sn := range c.Spec.HostedCluster.Networking.ServiceNetwork {
+			serviceCIDRs = append(serviceCIDRs, sn.CIDR.String())
+		}
+		network["service_cidr"] = strings.Join(serviceCIDRs, ", ")
+	}
+
+	// Machine CIDR
+	if len(c.Spec.HostedCluster.Networking.MachineNetwork) > 0 {
+		machineCIDRs := make([]string, 0, len(c.Spec.HostedCluster.Networking.MachineNetwork))
+		for _, mn := range c.Spec.HostedCluster.Networking.MachineNetwork {
+			machineCIDRs = append(machineCIDRs, mn.CIDR.String())
+		}
+		network["machine_cidr"] = strings.Join(machineCIDRs, ", ")
+	}
+
+	// Pod CIDR (ClusterNetwork)
+	if len(c.Spec.HostedCluster.Networking.ClusterNetwork) > 0 {
+		podCIDRs := make([]string, 0, len(c.Spec.HostedCluster.Networking.ClusterNetwork))
+		for _, cn := range c.Spec.HostedCluster.Networking.ClusterNetwork {
+			podCIDRs = append(podCIDRs, cn.CIDR.String())
+		}
+		network["pod_cidr"] = strings.Join(podCIDRs, ", ")
+		if len(c.Spec.HostedCluster.Networking.ClusterNetwork) > 0 && c.Spec.HostedCluster.Networking.ClusterNetwork[0].HostPrefix != 0 {
+			network["host_prefix"] = c.Spec.HostedCluster.Networking.ClusterNetwork[0].HostPrefix
+		}
+	}
+
+	// Subnets
+	if aws != nil && aws.CloudProviderConfig != nil && aws.CloudProviderConfig.Subnet != nil && aws.CloudProviderConfig.Subnet.ID != nil {
+		network["subnets"] = []string{*aws.CloudProviderConfig.Subnet.ID}
+	}
+
+	if len(network) > 0 {
+		m["network"] = network
 	}
 
 	conditions := make([]map[string]interface{}, 0, len(c.Status.Conditions))
@@ -187,9 +259,53 @@ func hfClusterToString(c *v1alpha1.Cluster) string {
 		s += fmt.Sprintf("Management Cluster:         %s\n", c.Status.PlacementRef.ManagementCluster)
 	}
 
+	// TODO: Uncomment when platform-api exposes these fields
+	// Add availability policies if present
+	// if c.Spec.HostedCluster.ControllerAvailabilityPolicy != "" {
+	// 	s += fmt.Sprintf("Controller Availability:    %s\n",
+	// 		string(c.Spec.HostedCluster.ControllerAvailabilityPolicy))
+	// }
+	// if c.Spec.HostedCluster.InfrastructureAvailabilityPolicy != "" {
+	// 	s += fmt.Sprintf("Infrastructure Availability: %s\n",
+	// 		string(c.Spec.HostedCluster.InfrastructureAvailabilityPolicy))
+	// }
+
 	if c.Spec.ExpirationTimestamp != nil {
 		s += fmt.Sprintf("Expiration:                 %s\n",
 			c.Spec.ExpirationTimestamp.UTC().Format("2006-01-02 15:04:05 UTC"))
+	}
+
+	// Add Network information
+	s += "Network:\n"
+	if c.Spec.HostedCluster.Networking.NetworkType != "" {
+		s += fmt.Sprintf(" - Type:                    %s\n", string(c.Spec.HostedCluster.Networking.NetworkType))
+	}
+	if len(c.Spec.HostedCluster.Networking.ServiceNetwork) > 0 {
+		serviceCIDRs := make([]string, 0, len(c.Spec.HostedCluster.Networking.ServiceNetwork))
+		for _, sn := range c.Spec.HostedCluster.Networking.ServiceNetwork {
+			serviceCIDRs = append(serviceCIDRs, sn.CIDR.String())
+		}
+		s += fmt.Sprintf(" - Service CIDR:            %s\n", strings.Join(serviceCIDRs, ", "))
+	}
+	if len(c.Spec.HostedCluster.Networking.MachineNetwork) > 0 {
+		machineCIDRs := make([]string, 0, len(c.Spec.HostedCluster.Networking.MachineNetwork))
+		for _, mn := range c.Spec.HostedCluster.Networking.MachineNetwork {
+			machineCIDRs = append(machineCIDRs, mn.CIDR.String())
+		}
+		s += fmt.Sprintf(" - Machine CIDR:            %s\n", strings.Join(machineCIDRs, ", "))
+	}
+	if len(c.Spec.HostedCluster.Networking.ClusterNetwork) > 0 {
+		podCIDRs := make([]string, 0, len(c.Spec.HostedCluster.Networking.ClusterNetwork))
+		for _, cn := range c.Spec.HostedCluster.Networking.ClusterNetwork {
+			podCIDRs = append(podCIDRs, cn.CIDR.String())
+		}
+		s += fmt.Sprintf(" - Pod CIDR:                %s\n", strings.Join(podCIDRs, ", "))
+		if c.Spec.HostedCluster.Networking.ClusterNetwork[0].HostPrefix != 0 {
+			s += fmt.Sprintf(" - Host Prefix:             /%d\n", c.Spec.HostedCluster.Networking.ClusterNetwork[0].HostPrefix)
+		}
+	}
+	if aws != nil && aws.CloudProviderConfig != nil && aws.CloudProviderConfig.Subnet != nil && aws.CloudProviderConfig.Subnet.ID != nil {
+		s += fmt.Sprintf(" - Subnets:                 %s\n", *aws.CloudProviderConfig.Subnet.ID)
 	}
 
 	if aws != nil {

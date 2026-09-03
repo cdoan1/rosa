@@ -907,6 +907,27 @@ func formatCluster(cluster *cmv1.Cluster, scheduledUpgrade *cmv1.UpgradePolicy,
 
 	ret["migrations"] = allMigrations
 
+	// Add explicit DNS information
+	dns := make(map[string]interface{})
+	domainPrefix := cluster.DomainPrefix()
+	baseDomain := ""
+	if cluster.DNS() != nil {
+		baseDomain = cluster.DNS().BaseDomain()
+	}
+	dnsReady := false
+	if cluster.Status() != nil {
+		dnsReady = cluster.Status().DNSReady()
+	}
+	dns["ready"] = dnsReady
+	dns["domain_prefix"] = domainPrefix
+	dns["base_domain"] = baseDomain
+	if dnsReady && domainPrefix != "" && baseDomain != "" {
+		dns["cluster_domain"] = strings.Join([]string{domainPrefix, baseDomain}, ".")
+	} else {
+		dns["cluster_domain"] = "Not ready"
+	}
+	ret["dns"] = dns
+
 	return ret, nil
 }
 
@@ -946,6 +967,27 @@ func formatClusterHypershift(cluster *cmv1.Cluster,
 	}
 
 	ret["migrations"] = allMigrations
+
+	// Add explicit DNS information
+	dns := make(map[string]interface{})
+	domainPrefix := cluster.DomainPrefix()
+	baseDomain := ""
+	if cluster.DNS() != nil {
+		baseDomain = cluster.DNS().BaseDomain()
+	}
+	dnsReady := false
+	if cluster.Status() != nil {
+		dnsReady = cluster.Status().DNSReady()
+	}
+	dns["ready"] = dnsReady
+	dns["domain_prefix"] = domainPrefix
+	dns["base_domain"] = baseDomain
+	if dnsReady && domainPrefix != "" && baseDomain != "" {
+		dns["cluster_domain"] = strings.Join([]string{domainPrefix, baseDomain}, ".")
+	} else {
+		dns["cluster_domain"] = "Not ready"
+	}
+	ret["dns"] = dns
 
 	return ret, nil
 }

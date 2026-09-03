@@ -2,6 +2,7 @@ package machinepool
 
 import (
 	"context"
+	"fmt"
 	"os"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -93,7 +94,8 @@ func runHyperfleetCreate(r *rosa.Runtime, userOptions *mpOpts.CreateMachinepoolU
 
 	np := &v1alpha1.NodePool{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: nodePoolName,
+			Name:      nodePoolName,
+			Namespace: fmt.Sprintf("cluster-%s", clusterUID),
 		},
 		Spec: v1alpha1.NodePoolSpec{
 			NodePool: v1alpha1.NodePoolSpecPassthrough{

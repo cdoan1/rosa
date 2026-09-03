@@ -2,6 +2,7 @@ package cluster
 
 import (
 	"context"
+	"net"
 	"os"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -11,6 +12,7 @@ import (
 	v1alpha1 "github.com/openshift-online/rosa-hyperfleet-api/api/v1alpha1/public"
 	"github.com/openshift-online/rosa-hyperfleet-api/clientset/platform"
 	hypershiftv1beta1 "github.com/openshift/hypershift/api/hypershift/v1beta1"
+	"github.com/openshift/hypershift/api/util/ipnet"
 
 	"github.com/openshift/rosa/pkg/hyperfleet"
 	"github.com/openshift/rosa/pkg/rosa"
@@ -87,6 +89,9 @@ func runHyperfleet(r *rosa.Runtime) {
 
 	rolesRef := hyperfleet.ComputeRolesRef(args.operatorRolesPrefix, r.Creator.AccountID, r.Creator.Partition)
 
+	// Build networking configuration
+	networking := buildNetworkingConfig()
+
 	subnetRef := subnetID
 	cluster, err := r.HyperFleetClient.HyperfleetV1alpha1().Clusters().Create(
 		ctx,
@@ -109,6 +114,7 @@ func runHyperfleet(r *rosa.Runtime) {
 							},
 						},
 					},
+					Networking: networking,
 				},
 			},
 		},
@@ -121,4 +127,62 @@ func runHyperfleet(r *rosa.Runtime) {
 	}
 
 	r.Reporter.Infof("Cluster '%s' created with ID '%s'", clusterName, string(cluster.UID))
+}
+
+// buildNetworkingConfig constructs the networking configuration from CLI args,
+// applying defaults that match the hyperfleet-operator behavior when values are not specified.
+func buildNetworkingConfig() hypershiftv1beta1.ClusterNetworking {
+	// Default values matching hyperfleet-operator defaults
+	const (
+		defaultNetworkType   = "OVNKubernetes"
+		defaultServiceCIDR   = "172.31.0.0/16"
+		defaultMachineCIDR   = "10.0.0.0/16"
+		defaultPodCIDR       = "10.132.0.0/14"
+		defaultHostPrefix    = 23
+	)
+
+	networking := hypershiftv1beta1.ClusterNetworking{}
+
+	// Network Type
+	if args.networkType != "" {
+		networking.NetworkType = hypershiftv1beta1.NetworkType(args.networkType)
+	} else {
+		networking.NetworkType = hypershiftv1beta1.NetworkType(defaultNetworkType)
+	}
+
+	// Service CIDR
+	serviceCIDRNet := parseOrDefault(args.serviceCIDR, defaultServiceCIDR)
+	networking.ServiceNetwork = []hypershiftv1beta1.ServiceNetworkEntry{
+		{CIDR: *ipnet.MustParseCIDR(serviceCIDRNet)},
+	}
+
+	// Machine CIDR
+	machineCIDRNet := parseOrDefault(args.machineCIDR, defaultMachineCIDR)
+	networking.MachineNetwork = []hypershiftv1beta1.MachineNetworkEntry{
+		{CIDR: *ipnet.MustParseCIDR(machineCIDRNet)},
+	}
+
+	// Pod CIDR and Host Prefix
+	podCIDRNet := parseOrDefault(args.podCIDR, defaultPodCIDR)
+	hostPrefix := int32(defaultHostPrefix)
+	if args.hostPrefix > 0 {
+		hostPrefix = int32(args.hostPrefix)
+	}
+	networking.ClusterNetwork = []hypershiftv1beta1.ClusterNetworkEntry{
+		{
+			CIDR:       *ipnet.MustParseCIDR(podCIDRNet),
+			HostPrefix: hostPrefix,
+		},
+	}
+
+	return networking
+}
+
+// parseOrDefault returns the string representation of the IPNet if it's set,
+// otherwise returns the default string.
+func parseOrDefault(ipNet net.IPNet, defaultCIDR string) string {
+	if ipNet.IP != nil {
+		return ipNet.String()
+	}
+	return defaultCIDR
 }

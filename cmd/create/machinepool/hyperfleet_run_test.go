@@ -72,6 +72,7 @@ var _ = Describe("runHyperfleetCreate (machinepool)", func() {
 		nodePools.EXPECT().Create(gomock.Any(), gomock.Any(), gomock.Any()).
 			DoAndReturn(func(_ context.Context, np *v1alpha1.NodePool, _ platform.CreateOptions) (*v1alpha1.NodePool, error) {
 				Expect(np.Name).To(Equal("my-np"))
+				Expect(np.Namespace).To(Equal("cluster-cluster-uid"))
 				Expect(np.Spec.NodePool.ClusterName).To(Equal("cluster1"))
 				Expect(*np.Spec.NodePool.Replicas).To(Equal(int32(2)))
 				Expect(np.Spec.NodePool.Platform.AWS.InstanceProfile).To(Equal("cluster1-ROSA-Worker-Role"))
@@ -100,6 +101,7 @@ var _ = Describe("runHyperfleetCreate (machinepool)", func() {
 		nodePools.EXPECT().Create(gomock.Any(), gomock.Any(), gomock.Any()).
 			DoAndReturn(func(_ context.Context, np *v1alpha1.NodePool, _ platform.CreateOptions) (*v1alpha1.NodePool, error) {
 				Expect(np.Name).To(Equal("my-np"))
+				Expect(np.Namespace).To(Equal("cluster-cluster-uid"))
 				Expect(np.Spec.NodePool.ClusterName).To(Equal("cluster1"))
 				Expect(*np.Spec.NodePool.Replicas).To(Equal(int32(2)))
 				Expect(np.Spec.NodePool.Platform.AWS.InstanceProfile).To(Equal("cluster1-ROSA-Worker-Role"))
