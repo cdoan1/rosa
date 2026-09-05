@@ -60,6 +60,14 @@ func runHyperfleet(r *rosa.Runtime) {
 	}
 	subnetID := args.subnetIDs[0]
 
+	// OIDC config ID is optional but recommended
+	oidcConfigID := args.oidcConfigId
+	if oidcConfigID == "" {
+		r.Reporter.Warnf("--oidc-config-id not provided, cluster will use auto-generated OIDC config")
+	} else {
+		r.Reporter.Infof("Using OIDC config ID: %s", oidcConfigID)
+	}
+
 	// Derive VPC ID and availability zone from the subnet.
 	subnetOut, err := hfDescribeSubnets(ctx, r.AWSConfig, subnetID)
 	if err != nil {
@@ -93,6 +101,7 @@ func runHyperfleet(r *rosa.Runtime) {
 		&v1alpha1.Cluster{
 			ObjectMeta: metav1.ObjectMeta{Name: clusterName},
 			Spec: v1alpha1.ClusterSpec{
+				OidcConfigID: oidcConfigID, // Set OIDC config ID if provided
 				HostedCluster: v1alpha1.HostedClusterSpecPassthrough{
 					Release: hypershiftv1beta1.Release{Image: args.version},
 					Platform: hypershiftv1beta1.PlatformSpec{

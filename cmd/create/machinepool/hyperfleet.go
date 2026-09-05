@@ -113,7 +113,9 @@ func runHyperfleetCreate(r *rosa.Runtime, userOptions *mpOpts.CreateMachinepoolU
 		},
 	}
 
-	created, err := r.HyperFleetClient.HyperfleetV1alpha1().NodePools(clusterUID).Create(ctx, np, platform.CreateOptions{})
+	// Platform API expects namespace in cluster-<uuid> format
+	clusterNamespace := "cluster-" + clusterUID
+	created, err := r.HyperFleetClient.HyperfleetV1alpha1().NodePools(clusterNamespace).Create(ctx, np, platform.CreateOptions{})
 	if err != nil {
 		r.Reporter.Errorf("Failed to create node pool '%s': %v", nodePoolName, err)
 		exitFn(1)
