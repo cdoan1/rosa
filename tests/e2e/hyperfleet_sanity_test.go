@@ -30,6 +30,7 @@ import (
 	hfrest "github.com/openshift-online/rosa-hyperfleet-api/clientset/rest"
 
 	"github.com/openshift/rosa/pkg/hyperfleet"
+	"github.com/openshift/rosa/tests/ci/labels"
 	rosacli "github.com/openshift/rosa/tests/utils/exec/rosacli"
 )
 
@@ -121,7 +122,7 @@ var hfOperatorRoles = []hfOperatorRole{
 
 var _ = Describe("Hyperfleet sanity",
 	func() {
-		It("creates and deletes an HCP cluster via the Platform API", func(ctx SpecContext) {
+		It("creates and deletes an HCP cluster via the Platform API", labels.Hyperfleet.Sanity, func(ctx SpecContext) {
 			hfURL := os.Getenv("HYPERFLEET_URL")
 			if hfURL == "" {
 				Skip("HYPERFLEET_URL is not set")
@@ -158,7 +159,7 @@ var _ = Describe("Hyperfleet sanity",
 				DeferCleanup(fn, GracePeriod(teardownGracePeriod))
 			}
 
-			By("Logging in with Platform API URL")
+			By("Logging in with V2 API URL")
 			_, err = rosacli.NewClient().Runner.
 				Cmd("login").
 				CmdFlags("--hyperfleet-url", hfURL).
@@ -170,7 +171,7 @@ var _ = Describe("Hyperfleet sanity",
 				_, _ = rosacli.NewClient().Runner.Cmd("logout").Run()
 			})
 
-			By("Verifying whoami shows Platform API URL and correct region")
+			By("Verifying whoami shows V2 API URL and correct region")
 			whoamiRunner := rosacli.NewClient().Runner
 			whoamiRunner.JsonFormat()
 			whoamiOut, err := whoamiRunner.Cmd("whoami").Run()
@@ -178,10 +179,10 @@ var _ = Describe("Hyperfleet sanity",
 			var whoamiMap map[string]interface{}
 			Expect(json.Unmarshal(whoamiOut.Bytes(), &whoamiMap)).To(Succeed(),
 				"parsing whoami JSON output")
-			Expect(whoamiMap["Platform API"]).To(Equal(hfURL),
-				"whoami must report the Platform API URL stored during login")
+			Expect(whoamiMap["V2 API"]).To(Equal(hfURL),
+				"whoami must report the V2 API URL stored during login")
 			Expect(whoamiMap["AWS Default Region"]).To(Equal(region),
-				"whoami must report the region derived from the Platform API URL")
+				"whoami must report the region derived from the V2 API URL")
 
 			By("Loading AWS configuration")
 			awsCfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(region))
