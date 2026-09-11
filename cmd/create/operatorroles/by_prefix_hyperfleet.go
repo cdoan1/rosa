@@ -69,6 +69,7 @@ type operatorRoleSpec struct {
 	ManagedPolicyArns []string
 	Description       string
 	IsWorkerRole      bool // True for worker node role
+	NeedsSpotPolicy   bool // True for roles that call RunInstances for spot instances
 }
 
 // getHCPOperatorRoles returns the list of operator roles needed for a hosted cluster
@@ -115,6 +116,7 @@ func getHCPOperatorRoles() []operatorRoleSpec {
 			ServiceAccount:    "system:serviceaccount:kube-system:capa-controller-manager",
 			ManagedPolicyArns: []string{"arn:aws:iam::aws:policy/service-role/ROSANodePoolManagementPolicy"},
 			Description:       "Manages worker node pools",
+			NeedsSpotPolicy:   true, // CAPA calls RunInstances for spot instances
 		},
 		{
 			Name:           "ROSA-Worker-Role",
@@ -249,6 +251,33 @@ func runHyperfleetCreateOperatorRoles(r *rosa.Runtime) {
 				}
 			}
 
+			// Add inline policy for roles that need to create spot instances
+			if spec.NeedsSpotPolicy {
+				spotServiceLinkedRolePolicy := fmt.Sprintf(`{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "iam:CreateServiceLinkedRole",
+      "Resource": "arn:%s:iam::*:role/aws-service-role/spot.amazonaws.com/AWSServiceRoleForEC2Spot",
+      "Condition": {
+        "StringLike": {
+          "iam:AWSServiceName": "spot.amazonaws.com"
+        }
+      }
+    }
+  ]
+}`, r.Creator.Partition)
+
+				r.Reporter.Debugf("Adding Spot service-linked role policy to '%s'", roleName)
+				err = r.AWSClient.PutRolePolicy(roleName, "SpotServiceLinkedRoleCreation", spotServiceLinkedRolePolicy)
+				if err != nil {
+					r.Reporter.Errorf("Failed to add Spot service-linked role policy to '%s': %v", roleName, err)
+					hfExitFn(1)
+					return
+				}
+			}
+
 			// Create instance profile for worker role
 			if spec.IsWorkerRole {
 				r.Reporter.Debugf("Creating instance profile for worker role '%s'", roleName)
@@ -331,6 +360,28 @@ func runHyperfleetCreateOperatorRoles(r *rosa.Runtime) {
 					AddParam(awscb.PolicyArn, policyArn).
 					Build()
 				commands = append(commands, attachPolicyCmd)
+			}
+
+			// Add inline policy for roles that need to create spot instances
+			if spec.NeedsSpotPolicy {
+				spotServiceLinkedRolePolicy := fmt.Sprintf(`'{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "iam:CreateServiceLinkedRole",
+      "Resource": "arn:%s:iam::*:role/aws-service-role/spot.amazonaws.com/AWSServiceRoleForEC2Spot",
+      "Condition": {
+        "StringLike": {
+          "iam:AWSServiceName": "spot.amazonaws.com"
+        }
+      }
+    }
+  ]
+}'`, r.Creator.Partition)
+				commands = append(commands,
+					fmt.Sprintf("aws iam put-role-policy --role-name %s --policy-name SpotServiceLinkedRoleCreation --policy-document %s", roleName, spotServiceLinkedRolePolicy),
+				)
 			}
 
 			// Create instance profile for worker role
