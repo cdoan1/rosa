@@ -106,6 +106,23 @@ func (ch *clusterHandler) generateHyperfleetCreateFlags() ([]string, error) {
 	if pc.VolumeSize != 0 {
 		ch.clusterConfig.WorkerDiskSize = fmt.Sprintf("%dGiB", pc.VolumeSize)
 	}
+
+	log.Logger.Info("✅ V2 Add Networking defaults.")
+	// V2 always set networking defaults
+	networking := &ClusterConfigure.Networking{
+		MachineCIDR: "10.0.0.0/16",
+		PodCIDR:     "10.128.0.0/14",
+		ServiceCIDR: "172.31.0.0/24",
+		HostPrefix:  "23",
+	}
+	flags = append(flags,
+		"--machine-cidr", networking.MachineCIDR, // Placeholder, it should be vpc CIDR
+		"--service-cidr", networking.ServiceCIDR,
+		"--pod-cidr", networking.PodCIDR,
+		"--host-prefix", networking.HostPrefix,
+	)
+	ch.clusterConfig.Networking = networking
+
 	return flags, ch.saveToFile()
 }
 
