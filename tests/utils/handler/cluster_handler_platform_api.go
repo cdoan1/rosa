@@ -190,17 +190,19 @@ func (ch *clusterHandler) waitForHyperfleetClusterReady(timeoutMin int) error {
 		ch.clusterDetail.InfraID = description.InfraID
 
 		phase := strings.TrimSpace(description.State)
-		switch phase {
-		case string(v1alpha1.ClusterPhaseReady):
+		// Normalize to lowercase for case-insensitive comparison (V2 API returns lowercase)
+		phaseLower := strings.ToLower(phase)
+		switch phaseLower {
+		case strings.ToLower(string(v1alpha1.ClusterPhaseReady)):
 			log.Logger.Infof("Cluster %s is ready now.", clusterKey)
 			if err := ch.createHyperfleetNodePoolsAfterReady(); err != nil {
 				return err
 			}
 			ch.recordHyperfleetClusterVersion(clusterKey)
 			return nil
-		case string(v1alpha1.ClusterPhaseDeleting):
+		case strings.ToLower(string(v1alpha1.ClusterPhaseDeleting)):
 			return fmt.Errorf("cluster %s is %s now. Cannot wait for it ready", clusterKey, phase)
-		case string(v1alpha1.ClusterPhaseWaitingForPlacement), string(v1alpha1.ClusterPhaseProvisioning), "":
+		case strings.ToLower(string(v1alpha1.ClusterPhaseWaitingForPlacement)), strings.ToLower(string(v1alpha1.ClusterPhaseProvisioning)), "":
 			log.Logger.Infof("Cluster %s phase is %q, waiting for Ready", clusterKey, phase)
 			time.Sleep(2 * time.Minute)
 		default:
