@@ -6,6 +6,7 @@ package public
 
 import (
 	"github.com/openshift/hypershift/api/hypershift/v1beta1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -722,6 +723,39 @@ func (in *NodePoolSpecPassthrough) DeepCopyInto(out *NodePoolSpecPassthrough) {
 		in, out := &in.Replicas, &out.Replicas
 		*out = new(int32)
 		**out = **in
+	}
+	in.Management.DeepCopyInto(&out.Management)
+	if in.AutoScaling != nil {
+		in, out := &in.AutoScaling, &out.AutoScaling
+		*out = new(v1beta1.NodePoolAutoScaling)
+		(*in).DeepCopyInto(*out)
+	}
+	if in.Config != nil {
+		in, out := &in.Config, &out.Config
+		*out = make([]corev1.LocalObjectReference, len(*in))
+		copy(*out, *in)
+	}
+	if in.NodeDrainTimeout != nil {
+		in, out := &in.NodeDrainTimeout, &out.NodeDrainTimeout
+		*out = new(v1.Duration)
+		**out = **in
+	}
+	if in.NodeLabels != nil {
+		in, out := &in.NodeLabels, &out.NodeLabels
+		*out = make(map[string]string, len(*in))
+		for key, val := range *in {
+			(*out)[key] = val
+		}
+	}
+	if in.Taints != nil {
+		in, out := &in.Taints, &out.Taints
+		*out = make([]v1beta1.Taint, len(*in))
+		copy(*out, *in)
+	}
+	if in.TuningConfig != nil {
+		in, out := &in.TuningConfig, &out.TuningConfig
+		*out = make([]corev1.LocalObjectReference, len(*in))
+		copy(*out, *in)
 	}
 }
 
