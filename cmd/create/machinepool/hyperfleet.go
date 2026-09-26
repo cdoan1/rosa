@@ -4,12 +4,16 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
+
+	corev1 "k8s.io/api/core/v1"
 
 	v1alpha1 "github.com/openshift-online/rosa-hyperfleet-api/api/v1alpha1/public"
 	"github.com/openshift-online/rosa-hyperfleet-api/clientset/platform"
 	hypershiftv1beta1 "github.com/openshift/hypershift/api/hypershift/v1beta1"
 	"github.com/spf13/cobra"
 
+	rosaaws "github.com/openshift/rosa/pkg/aws"
 	"github.com/openshift/rosa/pkg/hyperfleet"
 	hfpathbind "github.com/openshift/rosa/pkg/hyperfleet/pathbind"
 	"github.com/openshift/rosa/pkg/ocm"
@@ -22,6 +26,8 @@ import (
 // TODO: this derivation ideally belongs in the SDK (clientset/pathbind or
 // the bridge wrapper) so consumers don't need to know the namespace format.
 const clusterNamespacePrefix = "cluster-"
+
+const maxAWSResourceTags = 25
 
 // hfNodePoolInput is the backing store for hyperfleet-specific create machinepool flags.
 var hfNodePoolInput hfpathbind.NodePoolCreateInput
@@ -61,7 +67,7 @@ var (
 			handler,
 			clusterNamespacePrefix+clusterUID,
 		); err != nil {
-			r.Reporter.Errorf("Failed to create node pool: %v", err)
+			r.Reporter.Errorf("%v", err)
 			exitFn(1)
 		}
 	}
@@ -148,8 +154,24 @@ func (h *hyperfleetNodePoolCreate) PreRequest(
 	if input.Name == "" {
 		return fmt.Errorf("--name is required")
 	}
+
+	// Auto-select subnet from existing node pools if not provided (matches V1 behavior)
 	if input.SubnetID == "" {
-		return fmt.Errorf("--subnet is required for Platform API node pool creation")
+		ctx := context.Background()
+		npList, err := r.HyperFleetClient.HyperfleetV1alpha1().NodePools(clusterNamespacePrefix+h.clusterUID).
+			List(ctx, platform.ListOptions{})
+		if err == nil && len(npList.Items) > 0 {
+			// Use the first node pool's subnet as default
+			if npList.Items[0].Spec.NodePool.Platform.AWS != nil && npList.Items[0].Spec.NodePool.Platform.AWS.Subnet.ID != nil {
+				input.SubnetID = *npList.Items[0].Spec.NodePool.Platform.AWS.Subnet.ID
+				r.Reporter.Debugf("Auto-selected subnet %s from existing node pool", input.SubnetID)
+			}
+		}
+
+		// Still require subnet if we couldn't auto-select
+		if input.SubnetID == "" {
+			return fmt.Errorf("--subnet is required for Platform API node pool creation")
+		}
 	}
 	return nil
 }
@@ -160,6 +182,15 @@ func (h *hyperfleetNodePoolCreate) PostExpand(
 	_ *hfpathbind.NodePoolCreateInput,
 	obj *v1alpha1.NodePool,
 ) error {
+	if len(h.userOptions.Tags) > maxAWSResourceTags {
+		return fmt.Errorf("%s", "Invalid Node Pool AWS tags: Resource has too many AWS tags")
+	}
+	if len(h.userOptions.Tags) > 0 {
+		if err := rosaaws.UserTagValidator(h.userOptions.Tags); err != nil {
+			return err
+		}
+	}
+
 	cluster, err := r.HyperFleetClient.HyperfleetV1alpha1().Clusters().
 		Get(ctx, h.clusterUID, platform.GetOptions{})
 	if err != nil {
@@ -176,27 +207,118 @@ func (h *hyperfleetNodePoolCreate) PostExpand(
 	}
 
 	obj.Spec.NodePool.Platform.Type = hypershiftv1beta1.AWSPlatform
-	aws := obj.Spec.NodePool.Platform.AWS
-	aws.InstanceProfile = instanceProfile
 
-	if h.userOptions.RootDiskSize == "" {
-		return nil
+	// Ensure AWS platform is initialized
+	if obj.Spec.NodePool.Platform.AWS == nil {
+		obj.Spec.NodePool.Platform.AWS = &hypershiftv1beta1.AWSNodePoolPlatform{}
 	}
-	if aws.RootVolume != nil && aws.RootVolume.Size != 0 {
-		return fmt.Errorf("--disk-size and --size cannot be used together")
+
+	obj.Spec.NodePool.Platform.AWS.InstanceProfile = instanceProfile
+
+	// Root disk size
+	if h.userOptions.RootDiskSize != "" {
+		if obj.Spec.NodePool.Platform.AWS.RootVolume != nil && obj.Spec.NodePool.Platform.AWS.RootVolume.Size != 0 {
+			return fmt.Errorf("--disk-size and --size cannot be used together")
+		}
+		size, err := ocm.ParseDiskSizeToGigibyte(h.userOptions.RootDiskSize)
+		if err != nil {
+			return fmt.Errorf("invalid --disk-size: %w", err)
+		}
+		if obj.Spec.NodePool.Platform.AWS.RootVolume == nil {
+			obj.Spec.NodePool.Platform.AWS.RootVolume = &hypershiftv1beta1.Volume{}
+		}
+		obj.Spec.NodePool.Platform.AWS.RootVolume.Size = int64(size)
 	}
-	size, err := ocm.ParseDiskSizeToGigibyte(h.userOptions.RootDiskSize)
-	if err != nil {
-		return fmt.Errorf("invalid --disk-size: %w", err)
+
+	// Spot instances
+	if h.userOptions.UseSpotInstances {
+		if obj.Spec.NodePool.Platform.AWS.Placement == nil {
+			obj.Spec.NodePool.Platform.AWS.Placement = &hypershiftv1beta1.PlacementOptions{}
+		}
+		obj.Spec.NodePool.Platform.AWS.Placement.MarketType = hypershiftv1beta1.MarketTypeSpot
+		if h.userOptions.SpotMaxPrice != "" {
+			obj.Spec.NodePool.Platform.AWS.Placement.Spot.MaxPrice = h.userOptions.SpotMaxPrice
+		}
 	}
-	if aws.RootVolume == nil {
-		aws.RootVolume = &hypershiftv1beta1.Volume{}
+
+	// Security groups
+	if len(h.userOptions.SecurityGroupIds) > 0 {
+		obj.Spec.NodePool.Platform.AWS.SecurityGroups = make(
+			[]hypershiftv1beta1.AWSResourceReference,
+			len(h.userOptions.SecurityGroupIds),
+		)
+		for i, sgID := range h.userOptions.SecurityGroupIds {
+			idCopy := sgID
+			obj.Spec.NodePool.Platform.AWS.SecurityGroups[i] = hypershiftv1beta1.AWSResourceReference{
+				ID: &idCopy,
+			}
+		}
 	}
-	aws.RootVolume.Size = int64(size)
+
+	// Resource tags
+	if len(h.userOptions.Tags) > 0 {
+		delimiter := rosaaws.GetTagsDelimiter(h.userOptions.Tags)
+		obj.Spec.NodePool.Platform.AWS.ResourceTags = make([]hypershiftv1beta1.AWSResourceTag, 0, len(h.userOptions.Tags))
+		for _, tag := range h.userOptions.Tags {
+			parts := strings.SplitN(tag, delimiter, 2)
+			if len(parts) == 2 {
+				obj.Spec.NodePool.Platform.AWS.ResourceTags = append(
+					obj.Spec.NodePool.Platform.AWS.ResourceTags,
+					hypershiftv1beta1.AWSResourceTag{
+						Key:   strings.TrimSpace(parts[0]),
+						Value: strings.TrimSpace(parts[1]),
+					},
+				)
+			}
+		}
+	}
+
+	// Labels
+	if h.userOptions.Labels != "" {
+		labels := make(map[string]string)
+		for _, label := range strings.Split(h.userOptions.Labels, ",") {
+			parts := strings.SplitN(strings.TrimSpace(label), "=", 2)
+			if len(parts) == 2 {
+				labels[parts[0]] = parts[1]
+			}
+		}
+		if len(labels) > 0 {
+			obj.Spec.NodePool.NodeLabels = labels
+		}
+	}
+
+	// Taints
+	if h.userOptions.Taints != "" {
+		taints := []hypershiftv1beta1.Taint{}
+		for _, taint := range strings.Split(h.userOptions.Taints, ",") {
+			taint = strings.TrimSpace(taint)
+			parts := strings.SplitN(taint, "=", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			key := parts[0]
+			valueEffect := strings.SplitN(parts[1], ":", 2)
+			if len(valueEffect) != 2 {
+				continue
+			}
+			taints = append(taints, hypershiftv1beta1.Taint{
+				Key:    key,
+				Value:  valueEffect[0],
+				Effect: corev1.TaintEffect(valueEffect[1]),
+			})
+		}
+		if len(taints) > 0 {
+			obj.Spec.NodePool.Taints = taints
+		}
+	}
+
+	// Management (autorepair)
+	obj.Spec.NodePool.Management.AutoRepair = h.userOptions.Autorepair
+
 	return nil
 }
 
 func (h *hyperfleetNodePoolCreate) PostResponse(_ context.Context, r *rosa.Runtime, created *v1alpha1.NodePool) error {
-	r.Reporter.Infof("Node pool %q created in cluster %q (ID: %s)", created.Name, h.clusterKey, string(created.UID))
+	r.Reporter.Infof("Machine pool '%s' created successfully on hosted cluster '%s'", created.Name, h.clusterKey)
 	return nil
 }

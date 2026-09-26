@@ -18,6 +18,7 @@ type ClusterUpdateInput struct {
 	RoleARN                        string `hfsdk:"spec.hostedCluster.autoNode.provisionerConfig.karpenter.aws.roleARN"`
 	Platform                       string `hfsdk:"spec.hostedCluster.autoNode.provisionerConfig.karpenter.platform"`
 	ProvisionerConfigName          string `hfsdk:"spec.hostedCluster.autoNode.provisionerConfig.name"`
+	Channel                        string `hfsdk:"spec.hostedCluster.channel"`
 	ContainerLogMaxFiles           *int32 `hfsdk:"spec.hostedCluster.configuration.kubelet.containerLogMaxFiles"`
 	ContainerLogMaxSize            string `hfsdk:"spec.hostedCluster.configuration.kubelet.containerLogMaxSize"`
 	ImageGCHighThresholdPercent    *int32 `hfsdk:"spec.hostedCluster.configuration.kubelet.imageGCHighThresholdPercent"`
@@ -68,6 +69,7 @@ var ClusterUpdatePlatformAPIFlags = []string{
 	"role-arn",
 	"platform",
 	"provisioner-config-name",
+	"channel",
 	"container-log-max-files",
 	"container-log-max-size",
 	"image-gc-high-threshold-percent",
@@ -125,6 +127,7 @@ func RegisterClusterUpdateFlags(cmd *cobra.Command, input *ClusterUpdateInput) {
 	registerIfNew(f, "role-arn", func() { f.StringVar(&input.RoleARN, "role-arn", "", "") })
 	registerIfNew(f, "platform", func() { f.StringVar(&input.Platform, "platform", "", "") })
 	registerIfNew(f, "provisioner-config-name", func() { f.StringVar(&input.ProvisionerConfigName, "provisioner-config-name", "", "") })
+	registerIfNew(f, "channel", func() { f.StringVar(&input.Channel, "channel", "", "") })
 	registerIfNew(f, "container-log-max-files", func() {
 		input.ContainerLogMaxFiles = new(int32)
 		f.Int32Var(input.ContainerLogMaxFiles, "container-log-max-files", 0, "")

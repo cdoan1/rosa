@@ -46,6 +46,7 @@ require (
 	golang.org/x/term v0.45.0
 	golang.org/x/text v0.41.0
 	gopkg.in/yaml.v3 v3.0.1
+	k8s.io/api v0.36.2
 	k8s.io/apimachinery v0.36.4
 	k8s.io/client-go v0.36.0
 	k8s.io/utils v0.0.0-20260707023825-cf1189d6abe3
@@ -145,7 +146,6 @@ require (
 	gopkg.in/evanphx/json-patch.v4 v4.13.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
-	k8s.io/api v0.36.2 // indirect
 	k8s.io/klog/v2 v2.140.0 // indirect
 	k8s.io/kube-openapi v0.0.0-20260519202549-bbf5c5577288 // indirect
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
@@ -154,3 +154,7 @@ require (
 )
 
 replace github.com/golang/glog => github.com/kubermatic/glog-logrus v0.0.0-20180829085450-3fa5b9870d1d
+
+replace github.com/openshift-online/rosa-hyperfleet-api/api v0.1.11 => github.com/cdoan1/rosa-hyperfleet-api/api v0.0.0-20260925004303-93cc2f66a597
+
+replace github.com/openshift-online/rosa-hyperfleet-api/clientset v0.1.11 => github.com/cdoan1/rosa-hyperfleet-api/clientset v0.0.0-20260925004303-93cc2f66a597
