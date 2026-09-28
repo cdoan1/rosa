@@ -283,7 +283,7 @@ func (h *hyperfleetNodePoolCreate) PostExpand(
 			}
 		}
 		if len(labels) > 0 {
-			obj.Spec.NodePool.NodeLabels = labels
+			obj.Spec.Labels = labels
 		}
 	}
 
@@ -312,8 +312,9 @@ func (h *hyperfleetNodePoolCreate) PostExpand(
 		}
 	}
 
-	// Management (autorepair)
-	obj.Spec.NodePool.Management.AutoRepair = h.userOptions.Autorepair
+	// autoRepair is exposed as a mutable top-level Platform API field.
+	autoRepair := h.userOptions.Autorepair
+	obj.Spec.AutoRepair = &autoRepair
 
 	return nil
 }

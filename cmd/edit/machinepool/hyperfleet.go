@@ -210,6 +210,12 @@ func (h *hyperfleetNodePoolUpdate) PostExpand(
 		merged.Spec.NodePool.Platform.AWS.Placement.Spot.MaxPrice = h.userOptions.spotMaxPrice
 	}
 
+	// The Platform API rejects non-zero service-set management values on PUT,
+	// including values returned by Get. The operator derives these from the
+	// mutable top-level spec fields when rendering the HyperShift NodePool.
+	merged.Spec.NodePool.Management = hypershiftv1beta1.NodePoolManagement{}
+	merged.Spec.NodePool.NodeLabels = nil
+
 	*obj = *merged
 	return nil
 }
