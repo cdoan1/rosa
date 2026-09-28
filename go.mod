@@ -155,6 +155,6 @@ require (
 
 replace github.com/golang/glog => github.com/kubermatic/glog-logrus v0.0.0-20180829085450-3fa5b9870d1d
 
-replace github.com/openshift-online/rosa-hyperfleet-api/api v0.1.11 => github.com/cdoan1/rosa-hyperfleet-api/api v0.0.0-20260925004303-93cc2f66a597
+replace github.com/openshift-online/rosa-hyperfleet-api/api v0.1.11 => github.com/cdoan1/rosa-hyperfleet-api/api v0.0.0-20260928191258-85ec664c4c86
 
-replace github.com/openshift-online/rosa-hyperfleet-api/clientset v0.1.11 => github.com/cdoan1/rosa-hyperfleet-api/clientset v0.0.0-20260925004303-93cc2f66a597
+replace github.com/openshift-online/rosa-hyperfleet-api/clientset v0.1.11 => github.com/cdoan1/rosa-hyperfleet-api/clientset v0.0.0-20260928191258-85ec664c4c86

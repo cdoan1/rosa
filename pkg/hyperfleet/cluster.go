@@ -5,13 +5,13 @@ import (
 	"fmt"
 
 	v1alpha1 "github.com/openshift-online/rosa-hyperfleet-api/api/v1alpha1/public"
-	"github.com/openshift-online/rosa-hyperfleet-api/clientset"
+	hyperfleetclientset "github.com/openshift-online/rosa-hyperfleet-api/clientset"
 	"github.com/openshift-online/rosa-hyperfleet-api/clientset/platform"
 )
 
 // ResolveClusterUID looks up a cluster by name or UID and returns its UID.
 func ResolveClusterUID(
-	ctx context.Context, client clientset.Interface, clusterKey string,
+	ctx context.Context, client hyperfleetclientset.Interface, clusterKey string,
 ) (string, error) {
 	list, err := client.HyperfleetV1alpha1().Clusters().List(ctx, platform.ListOptions{})
 	if err != nil {
@@ -28,7 +28,7 @@ func ResolveClusterUID(
 // GetCluster looks up a cluster by name or UID and returns the cluster object.
 // Returns nil if the cluster is not found.
 func GetCluster(
-	ctx context.Context, client clientset.Interface, clusterKey string,
+	ctx context.Context, client hyperfleetclientset.Interface, clusterKey string,
 ) (*v1alpha1.Cluster, error) {
 	list, err := client.HyperfleetV1alpha1().Clusters().List(ctx, platform.ListOptions{})
 	if err != nil {
@@ -45,7 +45,7 @@ func GetCluster(
 // HasClusterUsingOperatorRolesPrefix reports whether any Platform API cluster's
 // RolesRef was created with the given operator-roles prefix.
 func HasClusterUsingOperatorRolesPrefix(
-	ctx context.Context, client clientset.Interface, prefix string,
+	ctx context.Context, client hyperfleetclientset.Interface, prefix string,
 ) (bool, error) {
 	if prefix == "" {
 		return false, nil
@@ -69,7 +69,7 @@ func HasClusterUsingOperatorRolesPrefix(
 // HasClusterUsingOidcConfigID reports whether any Platform API cluster references
 // the given OIDC config ID.
 func HasClusterUsingOidcConfigID(
-	ctx context.Context, client clientset.Interface, oidcConfigID string,
+	ctx context.Context, client hyperfleetclientset.Interface, oidcConfigID string,
 ) (bool, error) {
 	if oidcConfigID == "" {
 		return false, nil

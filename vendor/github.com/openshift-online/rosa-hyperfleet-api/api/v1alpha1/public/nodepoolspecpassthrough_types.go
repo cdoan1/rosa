@@ -32,7 +32,7 @@ type NodePoolSpecPassthrough struct {
 	Replicas *int32 `json:"replicas,omitempty"`
 	// management specifies behavior for managing nodes in the pool, such as
 	// +k8s:openapi-gen=true
-	// +hyperfleet:write-mode=mutable
+	// +hyperfleet:write-mode=service-set
 	// +required
 	Management hypershiftv1beta1.NodePoolManagement `json:"management"`
 	// autoScaling specifies auto-scaling behavior for the NodePool.
@@ -52,7 +52,7 @@ type NodePoolSpecPassthrough struct {
 	NodeDrainTimeout *metav1.Duration `json:"nodeDrainTimeout,omitempty"`
 	// nodeLabels propagates a list of labels to Nodes, only once on creation.
 	// +k8s:openapi-gen=true
-	// +hyperfleet:write-mode=mutable
+	// +hyperfleet:write-mode=service-set
 	// +optional
 	NodeLabels map[string]string `json:"nodeLabels,omitempty"`
 	// taints if specified, propagates a list of taints to Nodes, only once on creation.
