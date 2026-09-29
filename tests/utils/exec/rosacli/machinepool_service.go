@@ -358,7 +358,15 @@ func (m *machinepoolService) GetNodePoolAutoScaledReplicas(clusterID string, mpN
 		return nil, err
 	}
 
-	desiredReplicaList := mpDesc.DesiredReplicas.([]interface{})
+	desiredReplicaList, ok := mpDesc.DesiredReplicas.([]interface{})
+	if !ok {
+		return nil, fmt.Errorf(
+			"machine pool %q does not report autoscaling min/max replicas (autoscaling: %q, desired replicas: %v)",
+			mpName,
+			mpDesc.AutoScaling,
+			mpDesc.DesiredReplicas,
+		)
+	}
 	// Parse replicas of autoscaled machine/node pool
 	replicas, err := parseAutoscaledReplicas(desiredReplicaList)
 	if err != nil {
@@ -381,7 +389,10 @@ func parseAutoscaledReplicas(desiredReplicaList []interface{}) (map[string]int, 
 	// Parse replicas of autoscaled machine pool
 	replicas := make(map[string]int)
 	for _, data := range desiredReplicaList {
-		valMap := data.(map[string]interface{})
+		valMap, ok := data.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("unexpected autoscaling replica data %T", data)
+		}
 		for key, value := range valMap {
 			replica, err := strconv.Atoi(fmt.Sprintf("%v", value))
 			if err != nil {

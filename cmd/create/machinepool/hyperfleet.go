@@ -150,6 +150,13 @@ func (h *hyperfleetNodePoolCreate) PreRequest(
 
 	replicas := int32(h.userOptions.Replicas)
 	input.Replicas = &replicas
+	if h.userOptions.AutoscalingEnabled {
+		minReplicas := int32(h.userOptions.MinReplicas)
+		maxReplicas := int32(h.userOptions.MaxReplicas)
+		input.Min = &minReplicas
+		input.Max = &maxReplicas
+		input.Replicas = nil
+	}
 
 	if input.Name == "" {
 		return fmt.Errorf("--name is required")

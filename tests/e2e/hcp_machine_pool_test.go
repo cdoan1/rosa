@@ -992,7 +992,7 @@ var _ = Describe("HCP Machine Pool", labels.Feature.Machinepool, func() {
 
 	Describe("Spot instance node pool lifecycle", func() {
 		It("should create, describe, edit, and delete a Spot node pool [id:spot-hcp-np]",
-			labels.Medium, labels.Runtime.Day2, labels.Hyperfleet.Validated,
+			labels.Medium, labels.Runtime.Day2, labels.Hyperfleet.Deferred,
 			func() {
 				By("Create a node pool with spot instances enabled")
 				mpName := helper.GenerateRandomName("spot-np", 2)
@@ -1035,7 +1035,7 @@ var _ = Describe("HCP Machine Pool", labels.Feature.Machinepool, func() {
 			})
 
 		It("should create a Spot node pool with on-demand fallback (no max price) [id:spot-hcp-np-ondemand]",
-			labels.Medium, labels.Runtime.Day2, labels.Hyperfleet.Validated,
+			labels.Medium, labels.Runtime.Day2, labels.Hyperfleet.Deferred,
 			func() {
 				By("Create a node pool with spot instances but no max price (on-demand price)")
 				mpName := helper.GenerateRandomName("spot-od", 2)
