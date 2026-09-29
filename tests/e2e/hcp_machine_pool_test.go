@@ -21,10 +21,9 @@ import (
 )
 
 var _ = Describe("HCP Machine Pool", labels.Feature.Machinepool, func() {
-	// It doesn't check whether node pool instances ready in default.
-	// If needed for verify hcp node pool's changes, pls set the ENV CLUSTER_NODE_POOL_GLOBAL_CHECK to true,
-	// which will wait for node pool instances ready until timeout.
-	isNodePoolGlobalCheck := config.IsNodePoolGlobalCheck()
+	// HyperFleet exposes observed replicas through the Platform API, so check
+	// node pool readiness automatically on that path. OCM remains opt-in.
+	shouldCheckNodePoolReplicas := config.ShouldCheckNodePoolReplicas()
 
 	var (
 		rosaClient         *rosacli.Client
@@ -289,7 +288,7 @@ var _ = Describe("HCP Machine Pool", labels.Feature.Machinepool, func() {
 			Expect(mpDesc.DesiredReplicas).Should(Equal(desiredReplicas))
 			Expect(mpDesc.InstanceType).Should(Equal(instanceType))
 
-			if isNodePoolGlobalCheck {
+			if shouldCheckNodePoolReplicas {
 				By("Check if current replicas reach the desired replicas after creating a machine pool")
 				err = rosaClient.MachinePool.WaitForNodePoolReplicasReady(
 					clusterID,
@@ -369,7 +368,7 @@ var _ = Describe("HCP Machine Pool", labels.Feature.Machinepool, func() {
 			Expect(err).ToNot(HaveOccurred())
 			defer rosaClient.MachinePool.DeleteMachinePool(clusterID, mpName)
 
-			if isNodePoolGlobalCheck {
+			if shouldCheckNodePoolReplicas {
 				By("Check current replicas reach the min replicas after creating a autoscaled machine pool")
 				err = rosaClient.MachinePool.WaitForNodePoolReplicasReady(
 					clusterID,
@@ -1006,7 +1005,7 @@ var _ = Describe("HCP Machine Pool", labels.Feature.Machinepool, func() {
 				Expect(err).ToNot(HaveOccurred())
 				defer rosaClient.MachinePool.DeleteMachinePool(clusterID, mpName)
 
-				if isNodePoolGlobalCheck {
+				if shouldCheckNodePoolReplicas {
 					err = rosaClient.MachinePool.WaitForNodePoolReplicasReady(
 						clusterID, mpName, false, constants.NodePoolCheckPoll, constants.NodePoolCheckTimeout)
 					Expect(err).ToNot(HaveOccurred())
@@ -1016,6 +1015,11 @@ var _ = Describe("HCP Machine Pool", labels.Feature.Machinepool, func() {
 				description, err := rosaClient.MachinePool.DescribeMachinePool(clusterID, mpName)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(description.String()).To(ContainSubstring("Yes (max $0.05)"))
+				if shouldCheckNodePoolReplicas {
+					nodePoolDescription, err := rosaClient.MachinePool.ReflectNodePoolDescription(description)
+					Expect(err).ToNot(HaveOccurred())
+					Expect(nodePoolDescription.CurrentReplicas).To(Equal("1"))
+				}
 
 				By("Edit the node pool spot-max-price")
 				_, err = rosaClient.MachinePool.EditMachinePool(clusterID, mpName,

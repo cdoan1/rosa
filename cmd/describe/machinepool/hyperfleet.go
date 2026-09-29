@@ -183,10 +183,12 @@ func hfNodePoolToString(np *v1alpha1.NodePool, clusterName string) string {
 		desiredReplicasStr = fmt.Sprintf("%d", *np.Spec.NodePool.Replicas)
 	}
 
-	// Current replicas from status
-	// TODO: Platform API's NodePoolStatus doesn't expose Replicas yet
-	// Once added to the API, use: np.Status.Replicas
+	// Current replicas from status. A nil value means the API has not reported
+	// an observed replica count yet; zero is a valid reported value.
 	currentReplicasStr := ""
+	if np.Status.Replicas != nil {
+		currentReplicasStr = fmt.Sprintf("%d", *np.Status.Replicas)
+	}
 
 	// Labels
 	labels := ""

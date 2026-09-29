@@ -7681,6 +7681,10 @@ components:
                           - Ready
                           - Deleting
                       type: string
+                  replicas:
+                      description: Replicas is the latest observed number of nodes in the pool.
+                      format: int32
+                      type: integer
               type: object
       required:
           - spec
@@ -8384,6 +8388,10 @@ components:
                                       - Ready
                                       - Deleting
                                   type: string
+                              replicas:
+                                  description: Replicas is the latest observed number of nodes in the pool.
+                                  format: int32
+                                  type: integer
                           type: object
                   required:
                       - spec
@@ -8984,6 +8992,10 @@ components:
                   - Ready
                   - Deleting
               type: string
+          replicas:
+              description: Replicas is the latest observed number of nodes in the pool.
+              format: int32
+              type: integer
       type: object
 
     OidcConfig:
