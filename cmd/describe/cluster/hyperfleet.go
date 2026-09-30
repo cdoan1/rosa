@@ -232,6 +232,12 @@ func hfClusterToMap(
 		"private":           apiListening == "internal",
 		"delete_protection": hfDeleteProtectionEnabled(c),
 	}
+	// AutoNode is represented by its HostedCluster provisioner configuration in
+	// Platform API v2. Match the OCM describe shape, inferring enabled from the
+	// presence of that configuration.
+	if hfAutoNodeEnabled(c) {
+		m["auto_node"] = map[string]interface{}{"mode": "enabled"}
+	}
 	if apiURL != "" || apiListening != "" {
 		m["api"] = map[string]interface{}{
 			"url":       apiURL,
@@ -267,6 +273,9 @@ func hfClusterToMap(
 			}
 		}
 		awsMap := map[string]interface{}{"sts": stsMap}
+		if roleARN := hfAutoNodeRoleARN(c); roleARN != "" {
+			awsMap["auto_node"] = map[string]interface{}{"role_arn": roleARN}
+		}
 		if c.Spec.Properties != nil {
 			if tokens := c.Spec.Properties["ec2_metadata_http_tokens"]; tokens != "" {
 				awsMap["ec2_metadata_http_tokens"] = tokens
@@ -311,6 +320,19 @@ func hfClusterToMap(
 	}
 
 	return m
+}
+
+func hfAutoNodeEnabled(c *v1alpha1.Cluster) bool {
+	return c.Spec.HostedCluster.AutoNode.Provisioner.Name != ""
+}
+
+func hfAutoNodeRoleARN(c *v1alpha1.Cluster) string {
+	provisioner := c.Spec.HostedCluster.AutoNode.Provisioner
+	if provisioner.Name != hypershiftv1beta1.ProvisionerKarpenter ||
+		provisioner.Karpenter.Platform != hypershiftv1beta1.AWSPlatform {
+		return ""
+	}
+	return provisioner.Karpenter.AWS.RoleARN
 }
 
 // hfClusterToString formats a hyperfleet Cluster as a human-readable string,
@@ -390,6 +412,15 @@ func hfClusterToString(c *v1alpha1.Cluster, dataPlaneAZs map[string]struct{}, np
 	}
 	s += fmt.Sprintf("Created:                    %s\n",
 		c.CreationTimestamp.UTC().Format("2006-01-02 15:04:05 UTC"))
+	if hfAutoNodeEnabled(c) {
+		s += "AutoNode:\n"
+		s += "  Mode:                     enabled\n"
+		if roleARN := hfAutoNodeRoleARN(c); roleARN != "" {
+			s += fmt.Sprintf("  IAM Role ARN:             %s\n", roleARN)
+		}
+	} else {
+		s += fmt.Sprintf("AutoNode:                   %s\n", DisabledOutput)
+	}
 
 	if c.Status.PlacementRef != nil {
 		s += fmt.Sprintf("Management Cluster:         %s\n", c.Status.PlacementRef.ManagementCluster)

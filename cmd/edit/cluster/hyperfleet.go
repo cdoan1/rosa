@@ -11,8 +11,11 @@ import (
 
 	v1alpha1 "github.com/openshift-online/rosa-hyperfleet-api/api/v1alpha1/public"
 	"github.com/openshift-online/rosa-hyperfleet-api/clientset/platform"
+	hypershiftv1beta1 "github.com/openshift/hypershift/api/hypershift/v1beta1"
 	"github.com/spf13/cobra"
 
+	"github.com/openshift/rosa/pkg/fedramp"
+	"github.com/openshift/rosa/pkg/helper/autonode"
 	"github.com/openshift/rosa/pkg/hyperfleet"
 	hfpathbind "github.com/openshift/rosa/pkg/hyperfleet/pathbind"
 	"github.com/openshift/rosa/pkg/ocm"
@@ -63,6 +66,15 @@ func runHyperfleetEdit(r *rosa.Runtime, cmd *cobra.Command) {
 		clusterUID: clusterUID,
 		cmd:        cmd,
 	}
+	if h.autoNodeFlagsChanged() {
+		h.cluster, err = r.HyperFleetClient.HyperfleetV1alpha1().Clusters().Get(
+			cmd.Context(), clusterUID, platform.GetOptions{})
+		if err != nil {
+			r.Reporter.Errorf("Failed to get cluster: %v", err)
+			exitFn(1)
+			return
+		}
+	}
 	if err := h.PreRequest(cmd.Context(), r, &hfClusterUpdateInput); err != nil {
 		r.Reporter.Errorf("%v", err)
 		exitFn(1)
@@ -98,18 +110,21 @@ func runHyperfleetEdit(r *rosa.Runtime, cmd *cobra.Command) {
 type hyperfleetClusterUpdate struct {
 	clusterKey string
 	clusterUID string
+	cluster    *v1alpha1.Cluster
 	cmd        *cobra.Command
 }
 
 func (h *hyperfleetClusterUpdate) PreRequest(_ context.Context, _ *rosa.Runtime,
 	input *hfpathbind.ClusterUpdateInput) error {
 	channelChanged := h.cmd.Flags().Changed("channel-group") || h.cmd.Flags().Changed("channel")
+	autoNodeChanged := h.autoNodeFlagsChanged()
 	if !h.cmd.Flags().Changed("expiration") && !h.cmd.Flags().Changed("expiration-time") &&
 		!h.cmd.Flags().Changed("display-name") && !h.cmd.Flags().Changed("delete-protection") &&
-		!channelChanged {
+		!channelChanged && !autoNodeChanged {
 		return fmt.Errorf(
 			"specify at least one supported flag: --expiration, --expiration-time, " +
-				"--display-name, --delete-protection, --channel-group, --channel",
+				"--display-name, --delete-protection, --channel-group, --channel, --autonode, " +
+				"--autonode-iam-role-arn",
 		)
 	}
 
@@ -132,6 +147,56 @@ func (h *hyperfleetClusterUpdate) PreRequest(_ context.Context, _ *rosa.Runtime,
 		if err := validateHyperfleetChannelArgs(); err != nil {
 			return err
 		}
+	}
+	if autoNodeChanged {
+		if err := h.validateAutoNodeArgs(input); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (h *hyperfleetClusterUpdate) autoNodeFlagsChanged() bool {
+	for _, name := range []string{
+		autonode.AutoNodeFlagName,
+		autonode.AutoNodeIAMRoleArnFlagName,
+	} {
+		if h.cmd.Flags().Changed(name) {
+			return true
+		}
+	}
+	return false
+}
+
+func (h *hyperfleetClusterUpdate) validateAutoNodeArgs(input *hfpathbind.ClusterUpdateInput) error {
+	flags := h.cmd.Flags()
+	if fedramp.Enabled() {
+		return fmt.Errorf("AutoNode is not supported for govcloud clusters")
+	}
+
+	currentAutoNodeEnabled := h.cluster != nil &&
+		h.cluster.Spec.HostedCluster.AutoNode.Provisioner.Name != ""
+	autoNodeFlagChanged := flags.Changed(autonode.AutoNodeFlagName)
+	roleARNFlagChanged := flags.Changed(autonode.AutoNodeIAMRoleArnFlagName)
+	if autoNodeFlagChanged {
+		if err := autonode.ValidateAutoNodeValue(args.autonode); err != nil {
+			return err
+		}
+	}
+	if err := autonode.ValidateAutoNodeConfiguration(
+		autoNodeFlagChanged, roleARNFlagChanged, currentAutoNodeEnabled, args.autoNodeRoleARN,
+	); err != nil {
+		return err
+	}
+	if roleARNFlagChanged {
+		if err := autonode.ValidateRoleARN(args.autoNodeRoleARN); err != nil {
+			return err
+		}
+		input.RoleARN = args.autoNodeRoleARN
+	}
+	if autoNodeFlagChanged {
+		input.ProvisionerConfigName = string(hypershiftv1beta1.ProvisionerKarpenter)
+		input.Platform = string(hypershiftv1beta1.AWSPlatform)
 	}
 	return nil
 }
@@ -174,14 +239,45 @@ func (h *hyperfleetClusterUpdate) buildSpecPatch(input *hfpathbind.ClusterUpdate
 	if h.cmd.Flags().Changed("channel-group") {
 		spec["properties"] = map[string]any{"channel_group": args.channelGroup}
 	}
+	hostedCluster := map[string]any{}
 	if h.cmd.Flags().Changed("channel") {
-		spec["hostedCluster"] = map[string]any{"channel": args.channel}
+		hostedCluster["channel"] = args.channel
+	}
+	if h.autoNodeFlagsChanged() {
+		hostedCluster["autoNode"] = h.buildAutoNodePatch(input)
+	}
+	if len(hostedCluster) > 0 {
+		spec["hostedCluster"] = hostedCluster
 	}
 
 	if len(spec) == 0 {
 		return nil, fmt.Errorf("no supported fields to update")
 	}
 	return json.Marshal(map[string]any{"spec": spec})
+}
+
+func (h *hyperfleetClusterUpdate) buildAutoNodePatch(input *hfpathbind.ClusterUpdateInput) map[string]any {
+	flags := h.cmd.Flags()
+	provisionerConfig := map[string]any{}
+	karpenter := map[string]any{}
+	aws := map[string]any{}
+
+	if flags.Changed(autonode.AutoNodeFlagName) {
+		provisionerConfig["name"] = input.ProvisionerConfigName
+	}
+	if flags.Changed(autonode.AutoNodeFlagName) {
+		karpenter["platform"] = input.Platform
+	}
+	if flags.Changed(autonode.AutoNodeIAMRoleArnFlagName) {
+		aws["roleARN"] = input.RoleARN
+	}
+	if len(aws) > 0 {
+		karpenter["aws"] = aws
+	}
+	if len(karpenter) > 0 {
+		provisionerConfig["karpenter"] = karpenter
+	}
+	return map[string]any{"provisionerConfig": provisionerConfig}
 }
 
 func (h *hyperfleetClusterUpdate) PostResponse(_ context.Context, r *rosa.Runtime, _ *v1alpha1.Cluster) error {

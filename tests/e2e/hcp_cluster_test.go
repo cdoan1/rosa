@@ -22,6 +22,165 @@ import (
 	"github.com/openshift/rosa/tests/utils/helper"
 )
 
+func runHyperfleetAutoNodeE2E(clusterID string, clusterService rosacli.ClusterService, region string) {
+	jsonData, err := clusterService.GetJSONClusterDescription(clusterID)
+	Expect(err).ToNot(HaveOccurred())
+
+	autonodeInitiallyEnabled := jsonData.DigString("auto_node", "mode") == "enabled"
+	originalAutoNodeRoleARN := jsonData.DigString("aws", "auto_node", "role_arn")
+	if autonodeInitiallyEnabled {
+		Expect(originalAutoNodeRoleARN).NotTo(BeEmpty(), "enabled AutoNode must have a role ARN")
+	}
+
+	oidcProviderURL := jsonData.DigString("aws", "sts", "oidc_config", "issuer_url")
+	if oidcProviderURL == "" {
+		oidcProviderURL = jsonData.DigString("aws", "sts", "oidc_endpoint_url")
+	}
+	Expect(oidcProviderURL).NotTo(BeEmpty())
+	autonodePrefix1 := clusterID + "-1"
+	autonodePrefix2 := clusterID + "-2"
+	By("Ensure both AutoNode IAM roles exist")
+	autonodeRoleARN, err := config.PrepareAutonodeRoleAndPolicy(autonodePrefix1, oidcProviderURL, region)
+	Expect(err).ToNot(HaveOccurred())
+
+	autonodeRoleARN2, err := config.PrepareAutonodeRoleAndPolicy(autonodePrefix2, oidcProviderURL, region)
+	if err != nil {
+		if originalAutoNodeRoleARN != autonodeRoleARN {
+			cleanupErr := config.DeleteAutonodeRoleAndPolicy(autonodePrefix1, region)
+			Expect(cleanupErr).ToNot(HaveOccurred())
+		}
+	}
+	Expect(err).ToNot(HaveOccurred())
+
+	// AutoNode cannot currently be disabled through the CLI. Preserve the
+	// existing role, or role 1 on the first run, and remove the other test
+	// role only after the cluster has reconciled the restored configuration.
+	restoreRoleARN := originalAutoNodeRoleARN
+	if !autonodeInitiallyEnabled {
+		restoreRoleARN = autonodeRoleARN
+	}
+	waitForAutoNodeSync := func(expectedRoleARN string) {
+		Eventually(func() bool {
+			data, err := clusterService.GetJSONClusterDescription(clusterID)
+			if err != nil || data.DigString("aws", "auto_node", "role_arn") != expectedRoleARN {
+				return false
+			}
+			conditions, ok := data.DigObject("conditions").([]interface{})
+			if !ok {
+				return false
+			}
+			for condition := range conditions {
+				conditionType := data.DigString("conditions", condition, "type")
+				if conditionType == "Synced" {
+					return data.DigString("conditions", condition, "status") == "True"
+				}
+			}
+			return false
+		}, 5*time.Minute, 10*time.Second).Should(BeTrue())
+	}
+	DeferCleanup(func() {
+		By("Restore the AutoNode role and clean up temporary IAM resources")
+		data, err := clusterService.GetJSONClusterDescription(clusterID)
+		Expect(err).ToNot(HaveOccurred())
+		if data.DigString("auto_node", "mode") != "enabled" {
+			Expect(config.DeleteAutonodeRoleAndPolicy(autonodePrefix1, region)).To(Succeed())
+			Expect(config.DeleteAutonodeRoleAndPolicy(autonodePrefix2, region)).To(Succeed())
+			return
+		}
+		if data.DigString("aws", "auto_node", "role_arn") != restoreRoleARN {
+			out, err := config.RetryOnIAMPropagationError(func() (bytes.Buffer, error) {
+				return clusterService.EditCluster(
+					clusterID,
+					"--autonode-iam-role-arn", restoreRoleARN,
+				)
+			}, 3, 10*time.Second)
+			Expect(err).ToNot(HaveOccurred(), out.String())
+		}
+		waitForAutoNodeSync(restoreRoleARN)
+
+		if restoreRoleARN != autonodeRoleARN {
+			Expect(config.DeleteAutonodeRoleAndPolicy(autonodePrefix1, region)).To(Succeed())
+		}
+		if restoreRoleARN != autonodeRoleARN2 {
+			Expect(config.DeleteAutonodeRoleAndPolicy(autonodePrefix2, region)).To(Succeed())
+		}
+	})
+
+	By("Edit cluster autonode configuration with invalid flag value")
+	out, err := clusterService.EditCluster(
+		clusterID,
+		"--autonode=invalid",
+	)
+	Expect(err).To(HaveOccurred())
+	Expect(out.String()).To(ContainSubstring("only 'enabled' is supported"))
+
+	By("Edit cluster autonode configuration with invalid arn format")
+	if autonodeInitiallyEnabled {
+		out, err = clusterService.EditCluster(
+			clusterID,
+			"--autonode-iam-role-arn", "aaaaa",
+		)
+	} else {
+		out, err = clusterService.EditCluster(
+			clusterID,
+			"--autonode=enabled",
+			"--autonode-iam-role-arn", "aaaaa",
+		)
+	}
+	Expect(err).To(HaveOccurred())
+	Expect(out.String()).To(ContainSubstring("invalid IAM role ARN format"))
+
+	if !autonodeInitiallyEnabled {
+		By("Edit role arn when autonode configuration is not enabled")
+		out, err = clusterService.EditCluster(
+			clusterID,
+			"--autonode-iam-role-arn", autonodeRoleARN,
+		)
+		Expect(err).To(HaveOccurred())
+		Expect(out.String()).To(ContainSubstring("cannot update IAM role ARN when AutoNode is not enabled"))
+	}
+
+	By("Edit then describe cluster with autonode configuration")
+	if autonodeInitiallyEnabled {
+		out, err = config.RetryOnIAMPropagationError(func() (bytes.Buffer, error) {
+			return clusterService.EditCluster(
+				clusterID,
+				"--autonode-iam-role-arn", autonodeRoleARN,
+			)
+		}, 3, 10*time.Second)
+	} else {
+		out, err = config.RetryOnIAMPropagationError(func() (bytes.Buffer, error) {
+			return clusterService.EditCluster(
+				clusterID,
+				"--autonode=enabled",
+				"--autonode-iam-role-arn", autonodeRoleARN,
+			)
+		}, 3, 10*time.Second)
+	}
+	Expect(err).ToNot(HaveOccurred())
+	Expect(out.String()).To(ContainSubstring("Updated cluster"))
+
+	jsonData, err = clusterService.GetJSONClusterDescription(clusterID)
+	Expect(err).To(BeNil())
+	Expect(jsonData.DigString("auto_node", "mode")).To(Equal("enabled"))
+	Expect(jsonData.DigString("aws", "auto_node", "role_arn")).To(Equal(autonodeRoleARN))
+
+	By("Update the autonode configuration on cluster")
+	out, err = config.RetryOnIAMPropagationError(func() (bytes.Buffer, error) {
+		return clusterService.EditCluster(
+			clusterID,
+			"--autonode-iam-role-arn", autonodeRoleARN2,
+		)
+	}, 3, 10*time.Second)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(out.String()).To(ContainSubstring("Updated cluster"))
+
+	jsonData, err = clusterService.GetJSONClusterDescription(clusterID)
+	Expect(err).To(BeNil())
+	Expect(jsonData.DigString("auto_node", "mode")).To(Equal("enabled"))
+	Expect(jsonData.DigString("aws", "auto_node", "role_arn")).To(Equal(autonodeRoleARN2))
+}
+
 var _ = Describe("HCP cluster testing",
 	labels.Feature.Cluster,
 	func() {
@@ -877,22 +1036,11 @@ var _ = Describe("HCP cluster testing",
 				}
 			})
 		It("edit ROSA HCP with autonode configuration via rosa cli  - [id:84981]",
-			labels.High, labels.Runtime.Day2, labels.Hyperfleet.Validated,
+			labels.High, labels.Runtime.Day2, labels.Hyperfleet.Validated, labels.Hyperfleet.One,
 			func() {
 				isHyperfleet := os.Getenv("HYPERFLEET_URL") != "" || hyperfleet.Enabled()
 				if isHyperfleet {
-					// autoNode is mutable on Platform API but HF cluster edit is not
-					// wired for --autonode / --autonode-iam-role-arn yet.
-					By("V2: --autonode edit is rejected until HF edit wiring")
-					out, err := clusterService.EditCluster(
-						clusterID,
-						"--autonode=enabled",
-						"--autonode-iam-role-arn",
-						"arn:aws:iam::123456789012:role/unused",
-						"-y",
-					)
-					Expect(err).To(HaveOccurred())
-					Expect(out.String()).To(ContainSubstring("specify at least one supported flag"))
+					runHyperfleetAutoNodeE2E(clusterID, clusterService, profile.Region)
 					return
 				}
 
