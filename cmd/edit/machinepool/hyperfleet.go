@@ -104,20 +104,26 @@ func (h *hyperfleetNodePoolUpdate) PreRequest(
 ) error {
 	replicasChanged := h.cmd.Flags().Changed("replicas")
 	spotMaxPriceChanged := h.cmd.Flags().Changed("spot-max-price")
-	autoscalingChanged := h.cmd.Flags().Changed("enable-autoscaling") ||
-		h.cmd.Flags().Changed("min-replicas") ||
-		h.cmd.Flags().Changed("max-replicas")
+	enableAutoscalingChanged := h.cmd.Flags().Changed("enable-autoscaling")
+	minReplicasChanged := h.cmd.Flags().Changed("min-replicas")
+	maxReplicasChanged := h.cmd.Flags().Changed("max-replicas")
+	autoscalingBoundsChanged := minReplicasChanged || maxReplicasChanged
 
-	if !replicasChanged && !spotMaxPriceChanged && !autoscalingChanged {
+	if !replicasChanged && !spotMaxPriceChanged && !enableAutoscalingChanged && !autoscalingBoundsChanged {
 		return fmt.Errorf(
 			"specify at least one supported flag: --replicas, --enable-autoscaling, " +
 				"--min-replicas, --max-replicas, --spot-max-price",
 		)
 	}
 
-	// Validate autoscaling and replicas are mutually exclusive
-	if autoscalingChanged && replicasChanged {
+	if replicasChanged && (minReplicasChanged || maxReplicasChanged) {
+		return fmt.Errorf("replicas cannot be set together with min-replicas or max-replicas")
+	}
+	if replicasChanged && enableAutoscalingChanged && h.userOptions.autoscalingEnabled {
 		return fmt.Errorf("replicas cannot be set when autoscaling is enabled")
+	}
+	if autoscalingBoundsChanged && enableAutoscalingChanged && !h.userOptions.autoscalingEnabled {
+		return fmt.Errorf("autoscaling must be enabled in order to set min and max replicas")
 	}
 
 	if replicasChanged {
@@ -131,16 +137,20 @@ func (h *hyperfleetNodePoolUpdate) PreRequest(
 		input.Replicas = &replicas
 	}
 
-	if autoscalingChanged {
-		if h.userOptions.minReplicas < 0 {
-			return fmt.Errorf("min-replicas must be a non-negative number when autoscaling is enabled")
-		}
-		if h.userOptions.maxReplicas < 0 {
-			return fmt.Errorf("max-replicas must be a non-negative number when autoscaling is enabled")
-		}
-		if h.userOptions.minReplicas > h.userOptions.maxReplicas {
-			return fmt.Errorf("max-replicas must be greater than or equal to min-replicas")
-		}
+	if minReplicasChanged && h.userOptions.minReplicas < 0 {
+		return fmt.Errorf("min-replicas must be a non-negative number when autoscaling is enabled")
+	}
+	if maxReplicasChanged && h.userOptions.maxReplicas < 1 {
+		return fmt.Errorf("max-replicas must be greater than zero")
+	}
+	if minReplicasChanged && h.userOptions.minReplicas > math.MaxInt32 {
+		return fmt.Errorf("min-replicas must not exceed %d", math.MaxInt32)
+	}
+	if maxReplicasChanged && h.userOptions.maxReplicas > math.MaxInt32 {
+		return fmt.Errorf("max-replicas must not exceed %d", math.MaxInt32)
+	}
+	if minReplicasChanged && maxReplicasChanged && h.userOptions.minReplicas > h.userOptions.maxReplicas {
+		return fmt.Errorf("max-replicas must be greater than or equal to min-replicas")
 	}
 
 	return nil
@@ -165,36 +175,84 @@ func (h *hyperfleetNodePoolUpdate) PostExpand(
 	// The bridge wrapper routes the Update by obj.UID, which is carried over here.
 	merged := np.DeepCopy()
 
-	autoscalingChanged := h.cmd.Flags().Changed("enable-autoscaling") ||
-		h.cmd.Flags().Changed("min-replicas") ||
-		h.cmd.Flags().Changed("max-replicas")
+	enableAutoscalingChanged := h.cmd.Flags().Changed("enable-autoscaling")
+	minReplicasChanged := h.cmd.Flags().Changed("min-replicas")
+	maxReplicasChanged := h.cmd.Flags().Changed("max-replicas")
+	autoscalingBoundsChanged := minReplicasChanged || maxReplicasChanged
+	replicasChanged := h.cmd.Flags().Changed("replicas")
+	existingAutoScaling := np.Spec.NodePool.AutoScaling
 
-	if h.cmd.Flags().Changed("replicas") {
+	// Match the V1 transition rule: an autoscaled pool needs an explicit
+	// --enable-autoscaling=false before it can be assigned fixed replicas.
+	if replicasChanged && existingAutoScaling != nil &&
+		(!enableAutoscalingChanged || h.userOptions.autoscalingEnabled) {
+		return fmt.Errorf("autoscaling is enabled on machine pool '%s'; disable it before setting replicas", h.nodePoolKey)
+	}
+	if autoscalingBoundsChanged && enableAutoscalingChanged && !h.userOptions.autoscalingEnabled {
+		return fmt.Errorf("autoscaling must be enabled in order to set min and max replicas")
+	}
+
+	autoscalingEnabled := existingAutoScaling != nil
+	if enableAutoscalingChanged {
+		autoscalingEnabled = h.userOptions.autoscalingEnabled
+	}
+	if autoscalingBoundsChanged && !autoscalingEnabled {
+		return fmt.Errorf("autoscaling must be enabled in order to set min and max replicas")
+	}
+
+	if replicasChanged {
 		// Disable autoscaling when setting fixed replicas
 		merged.Spec.NodePool.AutoScaling = nil
 		merged.Spec.NodePool.Replicas = obj.Spec.NodePool.Replicas
 	}
 
-	if autoscalingChanged {
-		if h.userOptions.autoscalingEnabled {
-			// Enable autoscaling
-			merged.Spec.NodePool.Replicas = nil
-			minReplicas := int32(h.userOptions.minReplicas)
-			merged.Spec.NodePool.AutoScaling = &hypershiftv1beta1.NodePoolAutoScaling{
-				Min: &minReplicas,
-				Max: int32(h.userOptions.maxReplicas),
+	if enableAutoscalingChanged && !autoscalingEnabled {
+		// Disabling autoscaling needs a fixed replica count. Preserve an
+		// explicitly supplied value (including zero); otherwise retain the
+		// existing defaulting behavior.
+		merged.Spec.NodePool.AutoScaling = nil
+		if merged.Spec.NodePool.Replicas == nil {
+			replicas := int32(h.userOptions.minReplicas)
+			if replicas == 0 {
+				replicas = 1
 			}
-		} else {
-			// Disable autoscaling - requires setting a fixed replica count
-			merged.Spec.NodePool.AutoScaling = nil
-			if merged.Spec.NodePool.Replicas == nil {
-				// If no replicas set, default to min replicas value
-				replicas := int32(h.userOptions.minReplicas)
-				if replicas == 0 {
-					replicas = 1
-				}
-				merged.Spec.NodePool.Replicas = &replicas
+			merged.Spec.NodePool.Replicas = &replicas
+		}
+	}
+
+	if autoscalingEnabled && (enableAutoscalingChanged || autoscalingBoundsChanged) {
+		minReplicas := int32(0)
+		maxReplicas := int32(0)
+		if existingAutoScaling != nil {
+			if existingAutoScaling.Min != nil {
+				minReplicas = *existingAutoScaling.Min
 			}
+			maxReplicas = existingAutoScaling.Max
+		} else if np.Spec.NodePool.Replicas != nil {
+			minReplicas = *np.Spec.NodePool.Replicas
+			maxReplicas = *np.Spec.NodePool.Replicas
+		}
+		if minReplicasChanged {
+			minReplicas = int32(h.userOptions.minReplicas)
+		}
+		if maxReplicasChanged {
+			maxReplicas = int32(h.userOptions.maxReplicas)
+		}
+		if minReplicas < 0 {
+			return fmt.Errorf("min-replicas must be a non-negative number when autoscaling is enabled")
+		}
+		if maxReplicas < 1 {
+			return fmt.Errorf("max-replicas must be greater than zero")
+		}
+		if minReplicas > maxReplicas {
+			return fmt.Errorf("max-replicas must be greater than or equal to min-replicas")
+		}
+
+		// Autoscaling manages the pool size, so fixed replicas must be absent.
+		merged.Spec.NodePool.Replicas = nil
+		merged.Spec.NodePool.AutoScaling = &hypershiftv1beta1.NodePoolAutoScaling{
+			Min: &minReplicas,
+			Max: maxReplicas,
 		}
 	}
 

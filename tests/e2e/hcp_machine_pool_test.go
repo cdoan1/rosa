@@ -323,6 +323,60 @@ var _ = Describe("HCP Machine Pool", labels.Feature.Machinepool, func() {
 		Entry("For arm64 cpu architecture [id:60278]", constants.M6gXLarge, constants.ARM),
 	)
 
+	Describe("Edit machine pool scale-to-zero configurations", func() {
+		It("disables autoscaling and sets fixed replicas to zero", labels.Medium, labels.Runtime.Day2,
+			labels.Hyperfleet.Validated, func() {
+				mpName := helper.GenerateRandomName("fixed-zero", 2)
+				_, err := rosaClient.MachinePool.CreateMachinePool(clusterID, mpName,
+					"--enable-autoscaling",
+					"--min-replicas", "1",
+					"--max-replicas", "2",
+					"-y",
+				)
+				Expect(err).ToNot(HaveOccurred())
+				defer rosaClient.MachinePool.DeleteMachinePool(clusterID, mpName)
+
+				_, err = rosaClient.MachinePool.EditMachinePool(clusterID, mpName,
+					"--enable-autoscaling=false",
+					"--replicas", "0",
+					"-y",
+				)
+				Expect(err).ToNot(HaveOccurred())
+
+				description, err := rosaClient.MachinePool.DescribeAndReflectNodePool(clusterID, mpName)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(description.AutoScaling).To(Equal("No"))
+				Expect(description.DesiredReplicas).To(Equal(0))
+			})
+
+		It("allows autoscaling with a zero minimum", labels.Medium, labels.Runtime.Day2,
+			labels.Hyperfleet.Validated, func() {
+				mpName := helper.GenerateRandomName("zero-min", 2)
+				_, err := rosaClient.MachinePool.CreateMachinePool(clusterID, mpName,
+					"--replicas", "1",
+					"-y",
+				)
+				Expect(err).ToNot(HaveOccurred())
+				defer rosaClient.MachinePool.DeleteMachinePool(clusterID, mpName)
+
+				_, err = rosaClient.MachinePool.EditMachinePool(clusterID, mpName,
+					"--enable-autoscaling=true",
+					"--min-replicas", "0",
+					"--max-replicas", "2",
+					"-y",
+				)
+				Expect(err).ToNot(HaveOccurred())
+
+				description, err := rosaClient.MachinePool.DescribeAndReflectNodePool(clusterID, mpName)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(description.AutoScaling).To(Equal("Yes"))
+				autoscalingReplicas, err := rosaClient.MachinePool.GetNodePoolAutoScaledReplicas(clusterID, mpName)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(autoscalingReplicas["Min replicas"]).To(Equal(0))
+				Expect(autoscalingReplicas["Max replicas"]).To(Equal(2))
+			})
+	})
+
 	// TODO(cdoan): V2 defer for now until we add validation to the API
 	DescribeTable("Scale up/down a machine pool with invalid replica", labels.Medium, labels.Runtime.Day2, labels.FedRAMP, labels.Hyperfleet.Deferred,
 		func(instanceType string, updatedReplicas string, expectedErrMsg string) {

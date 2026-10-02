@@ -38,6 +38,10 @@ const (
 	rosa edit machinepool --replicas=4 --cluster=mycluster mp1
 	# Enable autoscaling and Set 3-5 replicas on machine pool 'mp1' on cluster 'mycluster'
 	rosa edit machinepool --enable-autoscaling --min-replicas=3 --max-replicas=5 --cluster=mycluster mp1
+	# Set fixed replicas to zero on machine pool 'mp1'
+	rosa edit machinepool --enable-autoscaling=false --replicas=0 --cluster=mycluster mp1
+	# Configure autoscaling with a zero minimum for machine pool 'mp1'
+	rosa edit machinepool --enable-autoscaling=true --min-replicas=0 --max-replicas=5 --cluster=mycluster mp1
 	# Set the node drain grace period to 1 hour on machine pool 'mp1' on cluster 'mycluster'
 	rosa edit machinepool --node-drain-grace-period="1 hour" --cluster=mycluster mp1`
 )
