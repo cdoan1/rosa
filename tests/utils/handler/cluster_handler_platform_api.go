@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -178,6 +179,28 @@ func (ch *clusterHandler) generateHyperfleetCreateFlags() ([]string, error) {
 	}
 
 	return flags, ch.saveToFile()
+}
+
+// HyperfleetAuthenticationFlags converts the profile's day-two OIDC configuration
+// to the flags used by `rosa edit cluster`.
+func HyperfleetAuthenticationFlags(profile *ClusterConfig) ([]string, error) {
+	if profile.AuthenticationType == "" {
+		if profile.ExternalAuthConfig || len(profile.OIDCProviders) > 0 {
+			return nil, fmt.Errorf("Hyperfleet external authentication requires authentication_type: OIDC and oidc_providers")
+		}
+		return nil, nil
+	}
+	if profile.AuthenticationType != "OIDC" {
+		return nil, fmt.Errorf("unsupported Hyperfleet authentication_type %q; expected OIDC", profile.AuthenticationType)
+	}
+	if len(profile.OIDCProviders) != 1 {
+		return nil, fmt.Errorf("Hyperfleet OIDC authentication requires exactly one oidc_providers entry")
+	}
+	providerJSON, err := json.Marshal(profile.OIDCProviders)
+	if err != nil {
+		return nil, fmt.Errorf("encoding Hyperfleet OIDC providers: %w", err)
+	}
+	return []string{"--authentication-type", profile.AuthenticationType, "--oidc-providers", string(providerJSON)}, nil
 }
 
 func resolvePlatformAPIVersion(profileVersion string) (string, bool) {

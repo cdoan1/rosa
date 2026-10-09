@@ -1,8 +1,9 @@
 # HyperFleet FVT profile for Platform API v2 (ephemeral / integration).
-# Use with: TEST_PROFILE=rosa-hyperfleet-basic
+# Use with: TEST_PROFILE=rosa-hyperfleet-basic or rosa-hyperfleet-oidc
 # Login: rosa login --hyperfleet-url $HYPERFLEET_URL
 #
 # Day1 create uses the hyperfleet handler (oidc_config: managed).
+# Day2 spec 71945 applies external user authentication with `rosa edit cluster`.
 profiles:
   - as: rosa-hyperfleet-basic
     version: "quay.io/openshift-release-dev/ocp-release:5.0.0-rc.5-multi"
@@ -36,6 +37,52 @@ profiles:
       additional_sg_number: 3
       registries_config: false
       scheduler_profile: HighNodeUtilization
+      allowed_registries: false
+      log_forward: false
+    account-role:
+      customized_prefix: false
+      path: ""
+      permission_boundary: ""
+  - as: rosa-hyperfleet-oidc
+    version: "quay.io/openshift-release-dev/ocp-release:5.0.0-rc.5-multi"
+    region: "us-east-1"
+    cluster:
+      multi_az: true
+      instance_type: "m5.xlarge"
+      hcp: true
+      sts: true
+      byo_vpc: true
+      private: false
+      default_ingress_private: false
+      additional_principals: false
+      imdsv2: ""
+      etcd_encryption: false
+      autoscale: false
+      kms_key: false
+      etcd_kms: false
+      networking: false
+      proxy_enabled: false
+      label_enabled: false
+      tag_enabled: false
+      zones: ""
+      fips: false
+      oidc_config: managed
+      authentication_type: OIDC
+      oidc_providers:
+        - name: rosa-hyperfleet-e2e
+          issuer:
+            url: https://accounts.google.com
+            audiences:
+              - rosa-hyperfleet-e2e
+          claim_mappings:
+            username:
+              claim: sub
+      admin_enabled: false
+      volume_size: 75
+      disable_uwm: false
+      autoscaler_enabled: false
+      additional_sg_number: 3
+      registries_config: false
       allowed_registries: false
       log_forward: false
     account-role:

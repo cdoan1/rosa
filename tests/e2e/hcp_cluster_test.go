@@ -439,16 +439,48 @@ var _ = Describe("HCP cluster testing",
 			})
 
 		It("create ROSA HCP cluster with external_auth_config config should work well via rosa client - [id:71945]",
-			labels.High, labels.Runtime.Day2, labels.FedRAMP, labels.Hyperfleet.Deferred,
+			labels.High, labels.Runtime.Day2, labels.FedRAMP, labels.Hyperfleet.Validated, labels.Hyperfleet.One,
 			func() {
-				// V2: external auth providers are not exposed on Platform API create/describe yet.
-				if isHyperfleetMode() {
-					Skip("external_auth_config is not available on Platform API v2 yet")
+				isHyperfleet := isHyperfleetMode()
+				if isHyperfleet {
+					By("Check the help message of 'rosa edit cluster -h'")
+					helpOutput, err := clusterService.EditCluster(clusterID, "-h")
+					Expect(err).To(BeNil())
+					Expect(helpOutput.String()).To(ContainSubstring("--authentication-type"))
+					Expect(helpOutput.String()).To(ContainSubstring("--oidc-providers"))
+				} else {
+					By("Check the help message of 'rosa create cluster -h'")
+					helpOutput, _, err := clusterService.Create("", "-h")
+					Expect(err).To(BeNil())
+					Expect(helpOutput.String()).To(ContainSubstring("--external-auth-providers-enabled"))
 				}
-				By("Check the help message of 'rosa create cluster -h'")
-				helpOutput, _, err := clusterService.Create("", "-h")
-				Expect(err).To(BeNil())
-				Expect(helpOutput.String()).To(ContainSubstring("--external-auth-providers-enabled"))
+
+				if isHyperfleet {
+					if profile.ClusterConfig.AuthenticationType != "OIDC" {
+						Skip("This Hyperfleet case requires TEST_PROFILE=rosa-hyperfleet-oidc")
+					}
+
+					By("Configure external OIDC authentication with rosa edit cluster")
+					authenticationFlags, err := handler.HyperfleetAuthenticationFlags(profile.ClusterConfig)
+					Expect(err).ToNot(HaveOccurred())
+					_, err = clusterService.EditCluster(clusterID, authenticationFlags...)
+					Expect(err).ToNot(HaveOccurred())
+
+					Eventually(func(g Gomega) {
+						output, err := clusterService.DescribeCluster(clusterID)
+						g.Expect(err).ToNot(HaveOccurred())
+						clusterDetail, err := clusterService.ReflectClusterDescription(output)
+						g.Expect(err).ToNot(HaveOccurred())
+						g.Expect(clusterDetail.ExternalAuthentication).To(Equal("Enabled"))
+						g.Expect(output.String()).To(MatchRegexp(
+							`(?m)^[ \t]*-[ \t]*Synced:[ \t]+True(?:[ \t]|$)`,
+						))
+					}, 10*time.Minute, 20*time.Second).Should(Succeed())
+
+					clusterConfig.ExternalAuthentication = true
+					_, err = helper.CreateFileWithContent(ciConfig.Test.ClusterConfigFile, clusterConfig)
+					Expect(err).ToNot(HaveOccurred())
+				}
 
 				By("Check if cluster enable external_auth_config")
 				output, err := clusterService.DescribeCluster(clusterID)
@@ -456,25 +488,33 @@ var _ = Describe("HCP cluster testing",
 				clusterDetail, err := clusterService.ReflectClusterDescription(output)
 				Expect(err).To(BeNil())
 
-				if !clusterConfig.ExternalAuthentication {
-					Skip("It is only for external_auth_config enabled clusters")
+				if clusterDetail.ExternalAuthentication != "Enabled" {
+					Skip("This case requires a cluster with external authentication enabled")
 				}
 				Expect(clusterDetail.ExternalAuthentication).To(Equal("Enabled"))
 
-				By("Check some cmds that are not supportted")
+				By("Check admin and IDP command support for this architecture")
 				output, err = rosaClient.User.CreateAdmin(clusterID)
 				Expect(err).ToNot(BeNil())
 				textData := rosaClient.Parser.TextData.Input(output).Parse().Tip()
-				Expect(textData).
-					Should(ContainSubstring(
+				if isHyperfleet {
+					Expect(textData).To(ContainSubstring(
+						"ERR: Creating the 'cluster-admin' user is not supported for Hyperfleet clusters because htpasswd identity providers are not supported"))
+				} else {
+					Expect(textData).To(ContainSubstring(
 						"ERR: Creating the 'cluster-admin' user is not supported for clusters with external authentication configured"))
+				}
 
 				_, output, err = rosaClient.IDP.ListIDP(clusterID)
 				Expect(err).ToNot(BeNil())
 				textData = rosaClient.Parser.TextData.Input(output).Parse().Tip()
-				Expect(textData).
-					Should(ContainSubstring(
+				if isHyperfleet {
+					Expect(textData).To(ContainSubstring(
+						"ERR: Listing identity providers is not supported for Hyperfleet clusters"))
+				} else {
+					Expect(textData).To(ContainSubstring(
 						"ERR: Listing identity providers is not supported for clusters with external authentication configured"))
+				}
 			})
 
 		It("can edit ROSA HCP cluster with additional allowed principals - [id:74556]",

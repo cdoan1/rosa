@@ -136,8 +136,6 @@
 - name: "unneeded-duration-seconds"
 - name: "utilization-threshold-percent"
 - name: "scaling"
-- name: "oidc-providers"
-- name: "authentication-type"
 - name: "component-routes"
 - name: "delete-protection"
 - name: "display-name"

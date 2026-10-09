@@ -32,12 +32,12 @@ resources:
         type: string
         flag: oidc-providers
         description: "JSON array of OIDC identity provider configurations."
-        operations: [create]
+        operations: [update]
       - path: spec.hostedCluster.configuration.authentication.type
         alias: authenticationType
         flag: authentication-type
-        description: "Authentication mode for the cluster. Set to OIDC when configuring OIDC providers."
-        operations: [create]
+        description: "Authentication mode for the cluster. Set to OIDC when configuring OIDC providers after cluster creation."
+        operations: [update]
       - path: spec.hostedCluster.configuration.ingress.componentRoutes
         type: string
       - path: spec.hostedCluster.imageContentSources

@@ -50,6 +50,8 @@ type ClusterConfig struct {
 	DisableUserWorKloadMonitoring bool   `yaml:"disable_uwm,omitempty" json:"disable_uwm,omitempty"`
 	DisableSCPChecks              bool   `yaml:"disable_scp_checks,omitempty" json:"disable_scp_checks,omitempty"`
 	ExternalAuthConfig            bool   `yaml:"external_auth_config,omitempty" json:"external_auth_config,omitempty"`
+	AuthenticationType            string `yaml:"authentication_type,omitempty" json:"authentication_type,omitempty"`
+	OIDCProviders                 OIDC   `yaml:"oidc_providers,omitempty" json:"oidc_providers,omitempty"`
 	EtcdEncryption                bool   `yaml:"etcd_encryption,omitempty" json:"etcd_encryption,omitempty"`
 	EtcdKMS                       bool   `yaml:"etcd_kms,omitempty" json:"etcd_kms,omitempty"`
 	FIPS                          bool   `yaml:"fips,omitempty" json:"fips,omitempty"`
@@ -78,6 +80,47 @@ type ClusterConfig struct {
 	UseLocalCredentials           bool   `yaml:"use_local_credentials,omitempty" json:"use_local_credentials,omitempty"`
 	Add_UnManaged_Tag             bool   `yaml:"add_unmanaged_tag" json:"add_unmanaged_tag,omitempty"`
 	LogForward                    bool   `yaml:"log_forward,omitempty" json:"log_forward,omitempty"`
+}
+
+// OIDCProvider is the external OIDC provider shape accepted by the Hyperfleet API.
+type OIDCProvider struct {
+	Name          string            `yaml:"name" json:"name"`
+	Issuer        OIDCIssuer        `yaml:"issuer" json:"issuer"`
+	OIDCClients   []OIDCClient      `yaml:"oidc_clients,omitempty" json:"oidcClients,omitempty"`
+	ClaimMappings OIDCClaimMappings `yaml:"claim_mappings" json:"claimMappings"`
+}
+
+// OIDC is a list of external OIDC providers.
+type OIDC []OIDCProvider
+
+// OIDCIssuer describes the token issuer and accepted audiences.
+type OIDCIssuer struct {
+	URL       string   `yaml:"url" json:"issuerURL"`
+	Audiences []string `yaml:"audiences" json:"audiences"`
+}
+
+// OIDCClient describes an on-cluster client configured to use an OIDC provider.
+type OIDCClient struct {
+	ComponentName      string `yaml:"component_name" json:"componentName"`
+	ComponentNamespace string `yaml:"component_namespace" json:"componentNamespace"`
+	ClientID           string `yaml:"client_id" json:"clientID"`
+}
+
+// OIDCClaimMappings describes how token claims map to cluster identities.
+type OIDCClaimMappings struct {
+	Username OIDCUsernameClaim `yaml:"username" json:"username"`
+}
+
+// OIDCUsernameClaim selects the token claim used as the cluster username.
+type OIDCUsernameClaim struct {
+	Claim        string              `yaml:"claim" json:"claim"`
+	PrefixPolicy string              `yaml:"prefix_policy,omitempty" json:"prefixPolicy,omitempty"`
+	Prefix       *OIDCUsernamePrefix `yaml:"prefix,omitempty" json:"prefix,omitempty"`
+}
+
+// OIDCUsernamePrefix configures a prefix for mapped usernames.
+type OIDCUsernamePrefix struct {
+	PrefixString string `yaml:"prefix_string" json:"prefixString"`
 }
 
 // Resources will record the resources prepared

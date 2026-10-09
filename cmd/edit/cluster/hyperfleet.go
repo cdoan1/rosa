@@ -116,16 +116,31 @@ func (h *hyperfleetClusterUpdate) PreRequest(ctx context.Context, r *rosa.Runtim
 
 	channelChanged := h.cmd.Flags().Changed("channel-group") || h.cmd.Flags().Changed("channel")
 	schedulerProfileChanged := h.cmd.Flags().Changed("scheduler-profile")
+	authenticationTypeChanged := h.cmd.Flags().Changed("authentication-type")
+	oidcProvidersChanged := h.cmd.Flags().Changed("oidc-providers")
 	if !h.cmd.Flags().Changed("expiration") && !h.cmd.Flags().Changed("expiration-time") &&
 		!h.cmd.Flags().Changed("display-name") && !h.cmd.Flags().Changed("delete-protection") &&
 		!channelChanged && !schedulerProfileChanged && !h.cmd.Flags().Changed("no-proxy") &&
 		!h.cmd.Flags().Changed("http-proxy") && !h.cmd.Flags().Changed("https-proxy") &&
-		!h.cmd.Flags().Changed("additional-trust-bundle-file") {
+		!h.cmd.Flags().Changed("additional-trust-bundle-file") &&
+		!authenticationTypeChanged && !oidcProvidersChanged {
 		return fmt.Errorf(
 			"specify at least one supported flag: --expiration, --expiration-time, " +
 				"--display-name, --delete-protection, --channel-group, --channel, --scheduler-profile, " +
-				"--http-proxy, --https-proxy, --no-proxy, --additional-trust-bundle-file",
+				"--http-proxy, --https-proxy, --no-proxy, --additional-trust-bundle-file, " +
+				"--authentication-type, --oidc-providers",
 		)
+	}
+	if authenticationTypeChanged != oidcProvidersChanged {
+		return fmt.Errorf("specify both --authentication-type and --oidc-providers to configure external authentication")
+	}
+	if authenticationTypeChanged && input.AuthenticationType != "OIDC" {
+		return fmt.Errorf("unsupported authentication type %q; expected OIDC", input.AuthenticationType)
+	}
+	if oidcProvidersChanged {
+		if _, err := parseHyperfleetOIDCProviders(input.OidcProviders); err != nil {
+			return err
+		}
 	}
 
 	// --expiration-time and --expiration are OCM-registered (hidden) flags that
@@ -281,6 +296,16 @@ func (h *hyperfleetClusterUpdate) buildSpecPatch(input *hfpathbind.ClusterUpdate
 		spec["hostedCluster"] = hc
 	}
 	configuration := map[string]any{}
+	if h.cmd.Flags().Changed("authentication-type") && h.cmd.Flags().Changed("oidc-providers") {
+		providers, err := parseHyperfleetOIDCProviders(input.OidcProviders)
+		if err != nil {
+			return nil, err
+		}
+		configuration["authentication"] = map[string]any{
+			"type":          input.AuthenticationType,
+			"oidcProviders": providers,
+		}
+	}
 	if h.cmd.Flags().Changed("scheduler-profile") {
 		configuration["scheduler"] = map[string]any{"profile": input.SchedulerProfile}
 	}
@@ -316,6 +341,23 @@ func (h *hyperfleetClusterUpdate) buildSpecPatch(input *hfpathbind.ClusterUpdate
 		return nil, fmt.Errorf("no supported fields to update")
 	}
 	return json.Marshal(map[string]any{"spec": spec})
+}
+
+func parseHyperfleetOIDCProviders(value string) ([]json.RawMessage, error) {
+	var providers []json.RawMessage
+	if err := json.Unmarshal([]byte(value), &providers); err != nil {
+		return nil, fmt.Errorf("invalid --oidc-providers JSON: %w", err)
+	}
+	if len(providers) != 1 {
+		return nil, fmt.Errorf("--oidc-providers must contain exactly one provider")
+	}
+	for _, provider := range providers {
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(provider, &fields); err != nil || fields == nil {
+			return nil, fmt.Errorf("--oidc-providers entries must be JSON objects")
+		}
+	}
+	return providers, nil
 }
 
 func (h *hyperfleetClusterUpdate) PostResponse(_ context.Context, r *rosa.Runtime, _ *v1alpha1.Cluster) error {

@@ -12,9 +12,11 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	ciConfig "github.com/openshift/rosa/tests/ci/config"
 	"github.com/openshift/rosa/tests/ci/labels"
 	"github.com/openshift/rosa/tests/utils/config"
 	"github.com/openshift/rosa/tests/utils/exec/rosacli"
+	"github.com/openshift/rosa/tests/utils/handler"
 	"github.com/openshift/rosa/tests/utils/helper"
 )
 
@@ -36,6 +38,12 @@ var _ = Describe("External auth provider", labels.Feature.ExternalAuthProvider, 
 
 	Describe("creation testing", func() {
 		BeforeEach(func() {
+			// Hyperfleet clusters are always HCP, and their external authentication
+			// state is managed through Platform API rather than the OCM JSON fields.
+			if isHyperfleetMode() {
+				return
+			}
+
 			By("Skip testing if the cluster is not a HCP cluster")
 			hostedCluster, err := clusterService.IsHostedCPCluster(clusterID)
 			Expect(err).ToNot(HaveOccurred())
@@ -52,8 +60,39 @@ var _ = Describe("External auth provider", labels.Feature.ExternalAuthProvider, 
 		})
 
 		It("to create/list/describe/delete HCP cluster with break_glass_credentials can work well - [id:72899]",
-			labels.High, labels.Runtime.Day2, labels.FedRAMP,
+			labels.High, labels.Runtime.Day2, labels.FedRAMP, labels.Hyperfleet.Validated, labels.Hyperfleet.One,
 			func() {
+				if isHyperfleetMode() {
+					profile := handler.LoadProfileYamlFileByENV()
+					if profile.ClusterConfig.AuthenticationType != "OIDC" {
+						Skip("This Hyperfleet case requires TEST_PROFILE=rosa-hyperfleet-oidc")
+					}
+
+					By("Enable external OIDC authentication with rosa edit cluster")
+					authenticationFlags, err := handler.HyperfleetAuthenticationFlags(profile.ClusterConfig)
+					Expect(err).ToNot(HaveOccurred())
+					_, err = clusterService.EditCluster(clusterID, authenticationFlags...)
+					Expect(err).ToNot(HaveOccurred())
+
+					By("Wait for external authentication to sync")
+					Eventually(func(g Gomega) {
+						output, err := clusterService.DescribeCluster(clusterID)
+						g.Expect(err).ToNot(HaveOccurred())
+						clusterDetail, err := clusterService.ReflectClusterDescription(output)
+						g.Expect(err).ToNot(HaveOccurred())
+						g.Expect(clusterDetail.ExternalAuthentication).To(Equal("Enabled"))
+						g.Expect(output.String()).To(MatchRegexp(
+							`(?m)^[ \t]*-[ \t]*Synced:[ \t]+True(?:[ \t]|$)`,
+						))
+					}, 10*time.Minute, 20*time.Second).Should(Succeed())
+
+					clusterConfig, err := config.ParseClusterProfile()
+					Expect(err).ToNot(HaveOccurred())
+					clusterConfig.ExternalAuthentication = true
+					_, err = helper.CreateFileWithContent(ciConfig.Test.ClusterConfigFile, clusterConfig)
+					Expect(err).ToNot(HaveOccurred())
+				}
+
 				var resp bytes.Buffer
 				var err error
 				var userName string
@@ -156,6 +195,10 @@ var _ = Describe("External auth provider", labels.Feature.ExternalAuthProvider, 
 		It("create/list/describe/delete external_auth for a HCP cluster can work well via rosa client - [id:72536]",
 			labels.Critical, labels.Runtime.Day2, labels.FedRAMP,
 			func() {
+				if isHyperfleetMode() {
+					Skip("This case exercises OCM external authentication provider CRUD, not Hyperfleet OIDC configuration")
+				}
+
 				clusterConfig, err := config.ParseClusterProfile()
 				Expect(err).ToNot(HaveOccurred())
 				if clusterConfig.ExternalAuthentication {
@@ -467,41 +510,55 @@ var _ = Describe("External auth provider", labels.Feature.ExternalAuthProvider, 
 			})
 
 		It("to validate HCP cluster creation/list with external auth - [id:72602]",
-			labels.Medium, labels.Runtime.Day2, labels.FedRAMP, labels.Hyperfleet.Deferred,
+			labels.Medium, labels.Runtime.Day2, labels.FedRAMP, labels.Hyperfleet.Validated, labels.Hyperfleet.One,
 			func() {
-				By("Create non HCP cluster with external_auths")
-				hostedCluster, err := clusterService.IsHostedCPCluster(clusterID)
-				Expect(err).ToNot(HaveOccurred())
-				if !hostedCluster {
-					output, err := rosaClient.ExternalAuthProvider.CreateExternalAuthProvider(clusterID)
-					Expect(err).To(HaveOccurred())
-					Expect(output.String()).Should(
-						ContainSubstring("ERR: external authentication provider is only supported for Hosted Control Planes"))
+				if isHyperfleetMode() {
+					By("Check that Hyperfleet external authentication is disabled")
+					output, err := clusterService.DescribeCluster(clusterID)
+					Expect(err).ToNot(HaveOccurred())
+					clusterDetail, err := clusterService.ReflectClusterDescription(output)
+					Expect(err).ToNot(HaveOccurred())
+					if clusterDetail.ExternalAuthentication == "Enabled" {
+						Skip("This case requires Hyperfleet external authentication to be disabled")
+					}
+					Expect(clusterDetail.ExternalAuthentication).To(Equal("Disabled"))
+				} else {
+					By("Check whether this is an HCP cluster")
+					hostedCluster, err := clusterService.IsHostedCPCluster(clusterID)
+					Expect(err).ToNot(HaveOccurred())
+					if !hostedCluster {
+						By("Create external auth provider on a non-HCP cluster")
+						output, err := rosaClient.ExternalAuthProvider.CreateExternalAuthProvider(clusterID)
+						Expect(err).To(HaveOccurred())
+						Expect(output.String()).Should(
+							ContainSubstring("ERR: external authentication provider is only supported for Hosted Control Planes"))
 
-					output, err = rosaClient.ExternalAuthProvider.ListExternalAuthProvider(clusterID)
-					Expect(err).To(HaveOccurred())
-					Expect(output.String()).Should(
-						ContainSubstring("ERR: external authentication provider is only supported for Hosted Control Planes"))
-					return
+						output, err = rosaClient.ExternalAuthProvider.ListExternalAuthProvider(clusterID)
+						Expect(err).To(HaveOccurred())
+						Expect(output.String()).Should(
+							ContainSubstring("ERR: external authentication provider is only supported for Hosted Control Planes"))
+						return
+					}
+
+					By("Check whether external authentication is enabled on the HCP cluster")
+					isExternalAuthEnabled, err := clusterService.IsExternalAuthenticationEnabled(clusterID)
+					Expect(err).ToNot(HaveOccurred())
+					if isExternalAuthEnabled {
+						return
+					}
 				}
 
-				By("Create external_provider  to HCP cluster that external_auth_config is not enable")
-				isExternalAuthEnabled, err := clusterService.IsExternalAuthenticationEnabled(clusterID)
-				Expect(err).ToNot(HaveOccurred())
-				if !isExternalAuthEnabled {
-					output, err := rosaClient.ExternalAuthProvider.CreateExternalAuthProvider(clusterID,
-						"--name", "test")
-					Expect(err).To(HaveOccurred())
-					Expect(output.String()).Should(
-						ContainSubstring("ERR: External authentication configuration is not enabled for cluster"))
+				By("Create external provider on an HCP cluster with external authentication disabled")
+				output, err := rosaClient.ExternalAuthProvider.CreateExternalAuthProvider(clusterID, "--name", "test")
+				Expect(err).To(HaveOccurred())
+				Expect(output.String()).Should(
+					ContainSubstring("ERR: External authentication configuration is not enabled for cluster"))
 
-					By("List external_provider to HCP cluster that external_auth_config is not enable")
-					output, err = rosaClient.ExternalAuthProvider.ListExternalAuthProvider(clusterID)
-					Expect(err).To(HaveOccurred())
-					Expect(output.String()).Should(
-						ContainSubstring("ERR: External authentication configuration is not enabled for cluster"))
-					return
-				}
+				By("List external providers on an HCP cluster with external authentication disabled")
+				output, err = rosaClient.ExternalAuthProvider.ListExternalAuthProvider(clusterID)
+				Expect(err).To(HaveOccurred())
+				Expect(output.String()).Should(
+					ContainSubstring("ERR: External authentication configuration is not enabled for cluster"))
 			})
 	})
 })
