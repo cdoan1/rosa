@@ -39,6 +39,8 @@ type ClusterCreateInput struct {
 	UtilizationThresholdPercent    *int32 `hfsdk:"spec.hostedCluster.autoscaling.scaleDown.utilizationThresholdPercent"`
 	Scaling                        string `hfsdk:"spec.hostedCluster.autoscaling.scaling"`
 	Channel                        string `hfsdk:"spec.hostedCluster.channel"`
+	OidcProviders                  string `hfsdk:"spec.hostedCluster.configuration.authentication.oidcProviders"`
+	AuthenticationType             string `hfsdk:"spec.hostedCluster.configuration.authentication.type"`
 	ComponentRoutes                string `hfsdk:"spec.hostedCluster.configuration.ingress.componentRoutes"`
 	ContainerLogMaxFiles           *int32 `hfsdk:"spec.hostedCluster.configuration.kubelet.containerLogMaxFiles"`
 	ContainerLogMaxSize            string `hfsdk:"spec.hostedCluster.configuration.kubelet.containerLogMaxSize"`
@@ -122,6 +124,8 @@ var ClusterCreatePlatformAPIFlags = []string{
 	"utilization-threshold-percent",
 	"scaling",
 	"channel",
+	"oidc-providers",
+	"authentication-type",
 	"component-routes",
 	"container-log-max-files",
 	"container-log-max-size",
@@ -236,6 +240,10 @@ func RegisterClusterCreateFlags(cmd *cobra.Command, input *ClusterCreateInput) {
 	})
 	registerIfNew(f, "scaling", func() { f.StringVar(&input.Scaling, "scaling", "", "") })
 	registerIfNew(f, "channel", func() { f.StringVar(&input.Channel, "channel", "", "") })
+	registerIfNew(f, "oidc-providers", func() {
+		f.StringVar(&input.OidcProviders, "oidc-providers", "", "OIDC identity providers as a JSON array.")
+	})
+	registerIfNew(f, "authentication-type", func() { f.StringVar(&input.AuthenticationType, "authentication-type", "", "") })
 	registerIfNew(f, "component-routes", func() { f.StringVar(&input.ComponentRoutes, "component-routes", "", "") })
 	registerIfNew(f, "container-log-max-files", func() {
 		input.ContainerLogMaxFiles = new(int32)

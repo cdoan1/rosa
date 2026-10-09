@@ -21,6 +21,11 @@ resources:
         type: string
       - path: spec.hostedCluster.autoscaling.expanders
         type: string
+      - path: spec.hostedCluster.configuration.authentication.oidcProviders
+        alias: oidcProviders
+        type: string
+        flag: oidc-providers
+        description: "OIDC identity providers as a JSON array."
       - path: spec.hostedCluster.configuration.kubelet.kubeReserved
         type: string
       - path: spec.hostedCluster.configuration.kubelet.systemReserved
@@ -99,6 +104,11 @@ resources:
         flag: scheduler-profile
         description: "Scheduler profile. Valid values are LowNodeUtilization, HighNodeUtilization, and NoScoring."
         operations: [create, update]
+
+      # Preserve the existing flag while authentication.type adds a same-named API leaf.
+      - path: spec.hostedCluster.platform.type
+        alias: type
+        flag: type
 
       # ── Derived fields: in struct for PreRequest use, no cobra flag ─────────
       - path: spec.hostedCluster.platform.aws.region
