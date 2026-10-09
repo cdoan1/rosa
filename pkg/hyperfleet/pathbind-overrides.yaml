@@ -27,6 +27,17 @@ resources:
         type: string
       - path: spec.hostedCluster.configuration.machineConfig.allowedKernelArguments
         type: string
+      - path: spec.hostedCluster.configuration.authentication.oidcProviders
+        alias: oidcProviders
+        type: string
+        flag: oidc-providers
+        description: "JSON array of OIDC identity provider configurations."
+        operations: [create]
+      - path: spec.hostedCluster.configuration.authentication.type
+        alias: authenticationType
+        flag: authentication-type
+        description: "Authentication mode for the cluster. Set to OIDC when configuring OIDC providers."
+        operations: [create]
       - path: spec.hostedCluster.configuration.ingress.componentRoutes
         type: string
       - path: spec.hostedCluster.imageContentSources
@@ -71,6 +82,12 @@ resources:
         flag: version
         description: "OpenShift release image for the cluster."
         required: true
+        operations: [create]
+
+      # Preserve the existing --type flag after authentication gains its own type field.
+      - path: spec.hostedCluster.platform.type
+        alias: type
+        flag: type
         operations: [create]
 
       - path: spec.hostedCluster.platform.aws.cloudProviderConfig.subnet.id
