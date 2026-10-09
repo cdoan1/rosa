@@ -272,8 +272,9 @@ func hfClusterToMap(
 			"oidc_issuer": c.Spec.HostedCluster.IssuerURL,
 			"roles_ref":   rolesRef,
 		},
-		"private":           apiListening == "internal",
-		"delete_protection": hfDeleteProtectionEnabled(c),
+		"private":                 apiListening == "internal",
+		"delete_protection":       hfDeleteProtectionEnabled(c),
+		"external_authentication": hfExternalAuthenticationStatus(c),
 	}
 	if configuration := c.Spec.HostedCluster.Configuration; configuration != nil && configuration.Scheduler != nil &&
 		configuration.Scheduler.Profile != "" {
@@ -424,6 +425,7 @@ func hfClusterToString(c *v1alpha1.Cluster, dataPlaneAZs map[string]struct{}, np
 		"State:                      %s\n"+
 		"Private:                    %s\n"+
 		"Delete Protection:          %s\n"+
+		"External Authentication:    %s\n"+
 		"FIPS mode:                  %s\n",
 		c.Name,
 		string(c.UID),
@@ -439,6 +441,7 @@ func hfClusterToString(c *v1alpha1.Cluster, dataPlaneAZs map[string]struct{}, np
 		strings.ToLower(string(c.Status.Phase)), // Normalize to lowercase to match V1 (OCM)
 		output.PrintBool(hfAPIListening(aws) == "internal"),
 		deleteProtection,
+		hfExternalAuthenticationStatus(c),
 		fips,
 	)
 	if c.Spec.Properties != nil {
@@ -572,6 +575,13 @@ func hfClusterToString(c *v1alpha1.Cluster, dataPlaneAZs map[string]struct{}, np
 	s += schedulerProfileStr
 
 	return s
+}
+
+func hfExternalAuthenticationStatus(c *v1alpha1.Cluster) string {
+	if hyperfleet.IsExternalAuthenticationEnabled(c) {
+		return "Enabled"
+	}
+	return "Disabled"
 }
 
 func hfAPIURL(c *v1alpha1.Cluster) string {

@@ -44,7 +44,7 @@ var Cmd = &cobra.Command{
 	Long:  "Creates a cluster-admin user with an auto-generated password to login to the cluster",
 	Example: `  # Create an admin user to login to the cluster
   rosa create admin -c mycluster -p MasterKey123`,
-	Run:  run,
+	Run:  dispatch,
 	Args: cobra.NoArgs,
 }
 

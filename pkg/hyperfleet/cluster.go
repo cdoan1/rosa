@@ -42,6 +42,17 @@ func GetCluster(
 	return nil, nil
 }
 
+// IsExternalAuthenticationEnabled reports whether a cluster uses the external
+// OIDC authentication mode exposed by the Platform API.
+func IsExternalAuthenticationEnabled(cluster *v1alpha1.Cluster) bool {
+	if cluster == nil || cluster.Spec.HostedCluster.Configuration == nil ||
+		cluster.Spec.HostedCluster.Configuration.Authentication == nil {
+		return false
+	}
+	authentication := cluster.Spec.HostedCluster.Configuration.Authentication
+	return authentication.Type == "OIDC" || len(authentication.OIDCProviders) > 0
+}
+
 // HasClusterUsingOperatorRolesPrefix reports whether any Platform API cluster's
 // RolesRef was created with the given operator-roles prefix.
 func HasClusterUsingOperatorRolesPrefix(
