@@ -23,6 +23,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/openshift/rosa/pkg/externalauthprovider"
+	"github.com/openshift/rosa/pkg/hyperfleet"
 	"github.com/openshift/rosa/pkg/interactive"
 	"github.com/openshift/rosa/pkg/ocm"
 	"github.com/openshift/rosa/pkg/rosa"
@@ -40,8 +41,14 @@ var Cmd = &cobra.Command{
 		"an internal OpenID Connect (OIDC) provider.",
 	Example: `  # Interactively create an external authentication provider to a cluster named "mycluster"
   rosa create external-auth-provider --cluster=mycluster --interactive`,
-	Run:  run,
+	Run:  dispatch,
 	Args: cobra.NoArgs,
+}
+
+var hfExternalAuthFlags struct {
+	issuerCAName      string
+	discoveryURL      string
+	groupsClaimPrefix string
 }
 
 func init() {
@@ -50,6 +57,36 @@ func init() {
 	ocm.AddClusterFlag(Cmd)
 	interactive.AddFlag(flags)
 	externalAuthProvidersArgs = externalauthprovider.AddExternalAuthProvidersFlags(Cmd, argsPrefix)
+	hyperfleet.RegisterAndMarkPlatformAPIFlags(Cmd, func() {
+		flags.StringVar(
+			&hfExternalAuthFlags.issuerCAName,
+			"issuer-ca-name",
+			"",
+			"Name of a ConfigMap in openshift-config containing the issuer CA bundle.",
+		)
+		flags.StringVar(
+			&hfExternalAuthFlags.discoveryURL,
+			"discovery-url",
+			"",
+			"Override the OIDC discovery URL derived from the issuer URL.",
+		)
+		flags.StringVar(
+			&hfExternalAuthFlags.groupsClaimPrefix,
+			"claim-mapping-groups-prefix",
+			"",
+			"Prefix to add to values from the groups claim.",
+		)
+	}, []string{
+		"name",
+		"issuer-url",
+		"issuer-audiences",
+		"claim-mapping-username-claim",
+		"claim-mapping-groups-claim",
+		"issuer-ca-name",
+		"discovery-url",
+		"claim-mapping-groups-prefix",
+	})
+	hyperfleet.AddPlatformAPIFlagSection(Cmd)
 }
 
 func run(cmd *cobra.Command, argv []string) {
@@ -63,6 +100,10 @@ func run(cmd *cobra.Command, argv []string) {
 }
 
 func runWithRuntime(r *rosa.Runtime, cmd *cobra.Command, argv []string) error {
+	if err := rejectHyperfleetOnlyFlagsV1(cmd); err != nil {
+		return err
+	}
+
 	clusterKey := r.GetClusterKey()
 	cluster := r.FetchCluster()
 
