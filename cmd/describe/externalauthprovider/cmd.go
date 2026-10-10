@@ -37,7 +37,7 @@ var Cmd = &cobra.Command{
 	Long:    "Show details of an external authentication provider on a cluster.",
 	Example: `  # Show details of an external authentication provider named "exauth" on a cluster named "mycluster"
   rosa describe external-auth-provider exauth --cluster=mycluster `,
-	Run:  run,
+	Run:  dispatch,
 	Args: cobra.MaximumNArgs(1),
 }
 
