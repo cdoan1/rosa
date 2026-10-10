@@ -36,18 +36,20 @@ var _ = Describe("External auth provider", labels.Feature.ExternalAuthProvider, 
 
 	Describe("creation testing", func() {
 		BeforeEach(func() {
-			By("Skip testing if the cluster is not a HCP cluster")
-			hostedCluster, err := clusterService.IsHostedCPCluster(clusterID)
-			Expect(err).ToNot(HaveOccurred())
-			if !hostedCluster {
-				SkipNotHosted()
-			}
+			if !isHyperfleetMode() {
+				By("Skip testing if the cluster is not a HCP cluster")
+				hostedCluster, err := clusterService.IsHostedCPCluster(clusterID)
+				Expect(err).ToNot(HaveOccurred())
+				if !hostedCluster {
+					SkipNotHosted()
+				}
 
-			By("Check if hcp cluster external_auth_providers is enabled")
-			externalAuthProvider, err := clusterService.IsExternalAuthenticationEnabled(clusterID)
-			Expect(err).ToNot(HaveOccurred())
-			if !externalAuthProvider {
-				SkipTestOnFeature("external auth provider")
+				By("Check if hcp cluster external_auth_providers is enabled")
+				externalAuthProvider, err := clusterService.IsExternalAuthenticationEnabled(clusterID)
+				Expect(err).ToNot(HaveOccurred())
+				if !externalAuthProvider {
+					SkipTestOnFeature("external auth provider")
+				}
 			}
 		})
 
@@ -154,11 +156,11 @@ var _ = Describe("External auth provider", labels.Feature.ExternalAuthProvider, 
 			})
 
 		It("create/list/describe/delete external_auth for a HCP cluster can work well via rosa client - [id:72536]",
-			labels.Critical, labels.Runtime.Day2, labels.FedRAMP,
+			labels.Critical, labels.Runtime.Day2, labels.FedRAMP, labels.Hyperfleet.Validated,
 			func() {
 				clusterConfig, err := config.ParseClusterProfile()
 				Expect(err).ToNot(HaveOccurred())
-				if clusterConfig.ExternalAuthentication {
+				if clusterConfig.ExternalAuthentication && !isHyperfleetMode() {
 					Skip("It is only for external_auth_config disabled clusters")
 				}
 				var (
@@ -208,6 +210,18 @@ var _ = Describe("External auth provider", labels.Feature.ExternalAuthProvider, 
 						"--console-client-secret", consoleClientSecrect,
 					},
 				}
+				if isHyperfleetMode() {
+					reqBody = map[string][]string{
+						"hyperfleet": {
+							"--name", helper.GenerateRandomName("provider-v2", 2),
+							"--issuer-url", issuerURL,
+							"--issuer-audiences", issuerAudience,
+							"--claim-mapping-username-claim", userNameClaim,
+							"--claim-mapping-groups-claim", groupClaim,
+							"--claim-mapping-groups-prefix", "corp:",
+						},
+					}
+				}
 
 				By("Check help message for create/list/describe/delete external_auth_provider")
 				_, err = rosaClient.ExternalAuthProvider.CreateExternalAuthProvider(clusterID, "-h")
@@ -247,21 +261,33 @@ var _ = Describe("External auth provider", labels.Feature.ExternalAuthProvider, 
 					}
 
 					By("Describe external auth provider of the cluster")
-					externalAuthProviderDesc, err :=
-						rosaClient.ExternalAuthProvider.DescribeExternalAuthProviderAndReflect(clusterID, providerName)
-					Expect(err).ToNot(HaveOccurred())
-					Expect(externalAuthProviderDesc.ID).To(Equal(providerName))
-					Expect(externalAuthProviderDesc.ClusterID).To(Equal(clusterID))
-					Expect(externalAuthProviderDesc.IssuerAudiences[0]).To(Equal(issuerAudience))
-					Expect(externalAuthProviderDesc.IssuerUrl).To(Equal(issuerURL))
-					Expect(externalAuthProviderDesc.ClaimMappingsGroup).To(Equal(groupClaim))
-					Expect(externalAuthProviderDesc.ClaimMappingsUserName).To(Equal(userNameClaim))
-					if key == "simple" {
-						Expect(externalAuthProviderDesc.ClaimValidationRules[0]).To(Equal(fmt.Sprintf("Claim:%s", claimRule[0])))
-						Expect(externalAuthProviderDesc.ClaimValidationRules[1]).To(Equal(fmt.Sprintf("Value:%s", claimRule[1])))
-					}
-					if key == "with_client_parameters" {
-						Expect(externalAuthProviderDesc.ConsoleClientID).To(Equal(consoleClientID))
+					if isHyperfleetMode() {
+						externalAuthProviderDesc, err :=
+							rosaClient.ExternalAuthProvider.DescribeExternalAuthProvider(clusterID, providerName)
+						Expect(err).ToNot(HaveOccurred())
+						Expect(externalAuthProviderDesc.String()).To(ContainSubstring(providerName))
+						Expect(externalAuthProviderDesc.String()).To(ContainSubstring(issuerAudience))
+						Expect(externalAuthProviderDesc.String()).To(ContainSubstring(issuerURL))
+						Expect(externalAuthProviderDesc.String()).To(ContainSubstring(groupClaim))
+						Expect(externalAuthProviderDesc.String()).To(ContainSubstring(userNameClaim))
+						Expect(externalAuthProviderDesc.String()).To(ContainSubstring("corp:"))
+					} else {
+						externalAuthProviderDesc, err :=
+							rosaClient.ExternalAuthProvider.DescribeExternalAuthProviderAndReflect(clusterID, providerName)
+						Expect(err).ToNot(HaveOccurred())
+						Expect(externalAuthProviderDesc.ID).To(Equal(providerName))
+						Expect(externalAuthProviderDesc.ClusterID).To(Equal(clusterID))
+						Expect(externalAuthProviderDesc.IssuerAudiences[0]).To(Equal(issuerAudience))
+						Expect(externalAuthProviderDesc.IssuerUrl).To(Equal(issuerURL))
+						Expect(externalAuthProviderDesc.ClaimMappingsGroup).To(Equal(groupClaim))
+						Expect(externalAuthProviderDesc.ClaimMappingsUserName).To(Equal(userNameClaim))
+						if key == "simple" {
+							Expect(externalAuthProviderDesc.ClaimValidationRules[0]).To(Equal(fmt.Sprintf("Claim:%s", claimRule[0])))
+							Expect(externalAuthProviderDesc.ClaimValidationRules[1]).To(Equal(fmt.Sprintf("Value:%s", claimRule[1])))
+						}
+						if key == "with_client_parameters" {
+							Expect(externalAuthProviderDesc.ConsoleClientID).To(Equal(consoleClientID))
+						}
 					}
 
 					By("Delete external auth provider of the cluster")

@@ -13,7 +13,6 @@ import (
 
 	"k8s.io/apimachinery/pkg/types"
 
-	v1alpha1 "github.com/openshift-online/rosa-hyperfleet-api/api/v1alpha1/public"
 	"github.com/openshift-online/rosa-hyperfleet-api/clientset/platform"
 	"github.com/spf13/cobra"
 
@@ -66,18 +65,9 @@ func runHyperfleetExternalAuthProvider(ctx context.Context, r *rosa.Runtime, cmd
 		return fmt.Errorf("--cluster is required")
 	}
 
-	cluster, err := hyperfleet.GetCluster(ctx, r.HyperFleetClient, clusterKey)
+	cluster, err := hyperfleet.GetReadyClusterByKey(ctx, r.HyperFleetClient, clusterKey)
 	if err != nil {
-		return fmt.Errorf("failed to resolve cluster '%s': %w", clusterKey, err)
-	}
-	if cluster == nil {
-		return fmt.Errorf("cluster '%s' not found", clusterKey)
-	}
-	if cluster.Status.Phase != v1alpha1.ClusterPhaseReady {
-		return fmt.Errorf("cluster '%s' is not yet ready", clusterKey)
-	}
-	if cluster.UID == "" {
-		return fmt.Errorf("cluster '%s' did not include a Platform API UID", clusterKey)
+		return err
 	}
 	if configuration := cluster.Spec.HostedCluster.Configuration; configuration != nil {
 		if authentication := configuration.Authentication; authentication != nil && len(authentication.OIDCProviders) > 0 {
@@ -108,7 +98,9 @@ func runHyperfleetExternalAuthProvider(ctx context.Context, r *rosa.Runtime, cmd
 		return fmt.Errorf("failed to create external authentication provider for cluster '%s': %w", clusterKey, err)
 	}
 
-	r.Reporter.Infof("Created external authentication provider '%s' for cluster '%s'", input.name, clusterKey)
+	r.Reporter.Infof("Successfully created an external authentication provider for cluster '%s'. "+
+		"It can take a few minutes for the creation of an external authentication provider to become fully effective.",
+		clusterKey)
 	return nil
 }
 

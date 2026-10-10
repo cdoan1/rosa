@@ -36,7 +36,7 @@ var Cmd = &cobra.Command{
 	Long:    "List external authentication provider for a cluster.",
 	Example: `  # List all external authentication providers for a cluster named 'mycluster'"
   rosa list external-auth-provider -c mycluster`,
-	Run:  run,
+	Run:  dispatch,
 	Args: cobra.NoArgs,
 }
 
