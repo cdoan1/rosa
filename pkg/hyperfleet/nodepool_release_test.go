@@ -26,8 +26,8 @@ var _ = Describe("Node pool release image resolution", func() {
 			}
 		},
 		Entry("current version", "4.20.3", "4.20.3", "quay.io/release@sha256:abc", "", ""),
-		Entry("prerelease version", "5.0.0-ec.6", "5.0.0-ec.6", "quay.io/release:5.0.0-ec.6", "", ""),
-		Entry("unsupported version from 56786", "4.12.1", "5.0.0-ec.6", "", "", "expected a valid OpenShift version"),
+		Entry("prerelease version", "5.0.0-rc.5", "5.0.0-rc.5", "quay.io/release:5.0.0-rc.5", "", ""),
+		Entry("unsupported version from 56786", "4.12.1", "5.0.0-rc.5", "", "", "expected a valid OpenShift version"),
 		Entry("unknown newer version", "4.21.1", "4.20.3", "quay.io/release@sha256:abc", "", "cannot be resolved"),
 		Entry("malformed version", "wrong", "4.20.3", "quay.io/release@sha256:abc", "", "expected a valid OpenShift version"),
 		Entry("unreported cluster version", "4.20.3", "", "quay.io/release@sha256:abc", "", "cannot be resolved"),

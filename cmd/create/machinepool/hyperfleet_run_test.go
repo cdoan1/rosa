@@ -207,7 +207,7 @@ var _ = Describe("runHyperfleetCreate (machinepool)", func() {
 		ctrl := gomock.NewController(GinkgoT())
 		hf, clusters, _ := newCreateMPMocks(ctrl)
 		cluster := makeCluster("cluster1", "cluster-uid")
-		cluster.Status.Version = "5.0.0-ec.6"
+		cluster.Status.Version = "5.0.0-rc.5"
 		clusters.EXPECT().List(gomock.Any(), gomock.Any()).Return(
 			&v1alpha1.ClusterList{Items: []v1alpha1.Cluster{*cluster}}, nil)
 		clusters.EXPECT().Get(gomock.Any(), "cluster-uid", gomock.Any()).Return(cluster, nil)

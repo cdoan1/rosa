@@ -152,7 +152,7 @@ var _ = Describe("runHyperfleet", func() {
 		args.subnetIDs = []string{"subnet-abc123"}
 		args.networkType = ""
 		args.noCni = false
-		args.version = "quay.io/openshift-release-dev/ocp-release:5.0.0-ec.6-multi"
+		args.version = "quay.io/openshift-release-dev/ocp-release:5.0.0-rc.5-multi"
 		args.tags = nil
 		hfClusterInput.Tags = ""
 
