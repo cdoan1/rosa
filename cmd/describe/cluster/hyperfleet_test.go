@@ -215,6 +215,29 @@ var _ = Describe("hfClusterToMap", func() {
 		Expect(roles["storageARN"]).To(Equal("arn:aws:iam::123456789012:role/my-cluster-ebs-csi"))
 	})
 
+	It("maps capabilities at the top level, not under spec", func() {
+		c := buildCluster()
+		c.Spec.HostedCluster.Capabilities = &hypershiftv1beta1.Capabilities{
+			Enabled:  []hypershiftv1beta1.OptionalCapability{"Console"},
+			Disabled: []hypershiftv1beta1.OptionalCapability{"ImageRegistry"},
+		}
+		m := hfClusterToMap(c, nil, nil, "")
+
+		capabilities, ok := m["capabilities"].(map[string]interface{})
+		Expect(ok).To(BeTrue())
+		Expect(capabilities["enabled"]).To(ConsistOf(hypershiftv1beta1.OptionalCapability("Console")))
+		Expect(capabilities["disabled"]).To(ConsistOf(hypershiftv1beta1.OptionalCapability("ImageRegistry")))
+
+		spec := m["spec"].(map[string]interface{})
+		Expect(spec).NotTo(HaveKey("capabilities"))
+	})
+
+	It("omits capabilities when none are set", func() {
+		c := buildCluster()
+		m := hfClusterToMap(c, nil, nil, "")
+		Expect(m).NotTo(HaveKey("capabilities"))
+	})
+
 	It("maps conditions", func() {
 		c := buildCluster()
 		m := hfClusterToMap(c, nil, nil, "")

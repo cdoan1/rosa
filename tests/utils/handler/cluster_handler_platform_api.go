@@ -117,6 +117,9 @@ func (ch *clusterHandler) generateHyperfleetCreateFlags() ([]string, error) {
 	if pc.SchedulerProfile != "" {
 		flags = append(flags, "--scheduler-profile", pc.SchedulerProfile)
 	}
+	if pc.DisableCapabilities != "" {
+		flags = append(flags, "--disable-cluster-capabilities", pc.DisableCapabilities)
+	}
 
 	log.Logger.Info("V2 Add Networking defaults.")
 	// V2 always set networking defaults

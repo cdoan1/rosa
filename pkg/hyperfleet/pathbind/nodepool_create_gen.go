@@ -59,6 +59,7 @@ var NodePoolCreatePlatformAPIFlags = []string{
 	"labels",
 	"max-surge",
 	"max-unavailable",
+	"cluster-name",
 	"node-labels",
 	"ami",
 	"image-type",
@@ -88,6 +89,7 @@ func RegisterNodePoolCreateFlags(cmd *cobra.Command, input *NodePoolCreateInput)
 	registerIfNew(f, "labels", func() { f.StringVar(&input.Labels, "labels", "", "") })
 	registerIfNew(f, "max-surge", func() { f.StringVar(&input.MaxSurge, "max-surge", "", "") })
 	registerIfNew(f, "max-unavailable", func() { f.StringVar(&input.MaxUnavailable, "max-unavailable", "", "") })
+	registerIfNew(f, "cluster-name", func() { f.StringVar(&input.ClusterName, "cluster-name", "", "") })
 	registerIfNew(f, "node-labels", func() { f.StringVar(&input.NodeLabels, "node-labels", "", "") })
 	registerIfNew(f, "ami", func() { f.StringVar(&input.Ami, "ami", "", "") })
 	registerIfNew(f, "image-type", func() { f.StringVar(&input.ImageType, "image-type", "", "") })

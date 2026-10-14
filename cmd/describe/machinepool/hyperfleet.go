@@ -111,7 +111,7 @@ func hfNodePoolToMap(np *v1alpha1.NodePool, clusterName string) map[string]inter
 		if np.Spec.NodePool.Platform.AWS.Subnet.ID != nil {
 			subnetID = *np.Spec.NodePool.Platform.AWS.Subnet.ID
 		}
-		diskSize = hyperfleet.FormatNodePoolDiskSize(np.Spec.NodePool.Platform.AWS)
+		diskSize = hyperfleet.FormatHyperFleetNodePoolDiskSize(np.Spec.NodePool.Platform.AWS)
 	}
 	securityGroupIDs := hfSecurityGroupIDs(np.Spec.NodePool.Platform.AWS)
 
@@ -156,7 +156,7 @@ func hfNodePoolToString(np *v1alpha1.NodePool, clusterName string) string {
 		if aws.Subnet.ID != nil {
 			subnetID = *aws.Subnet.ID
 		}
-		diskSize = hyperfleet.FormatNodePoolDiskSize(aws)
+		diskSize = hyperfleet.FormatHyperFleetNodePoolDiskSize(aws)
 
 		// Spot instances
 		if aws.Placement != nil && aws.Placement.MarketType == "Spot" {

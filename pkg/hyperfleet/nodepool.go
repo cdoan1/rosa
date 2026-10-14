@@ -71,5 +71,17 @@ func FormatNodePoolDiskSize(aws *v1alpha1.AWSNodePoolPlatform) string {
 	if aws == nil || aws.RootVolume == nil || aws.RootVolume.Size <= 0 {
 		return ""
 	}
-	return fmt.Sprintf("%d GiB", aws.RootVolume.Size)
+	return formatNodePoolDiskSize(aws.RootVolume.Size)
+}
+
+// FormatHyperFleetNodePoolDiskSize returns the disk size column for a HyperFleet API node pool.
+func FormatHyperFleetNodePoolDiskSize(aws *v1alpha1.AWSNodePoolPlatform) string {
+	if aws == nil || aws.RootVolume == nil || aws.RootVolume.Size <= 0 {
+		return ""
+	}
+	return formatNodePoolDiskSize(aws.RootVolume.Size)
+}
+
+func formatNodePoolDiskSize(size int64) string {
+	return fmt.Sprintf("%d GiB", size)
 }
