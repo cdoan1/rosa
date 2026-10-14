@@ -25,6 +25,24 @@ resources:
         type: string
       - path: spec.hostedCluster.configuration.kubelet.systemReserved
         type: string
+      - path: spec.hostedCluster.configuration.authentication.oidcProviders
+        type: string
+        flag: ""
+      - path: spec.hostedCluster.configuration.authentication.type
+        type: string
+        flag: ""
+      # These API fields are not exposed as CLI flags but need explicit types
+      # because the Cobra generator does not support their inferred list types.
+      - path: spec.hostedCluster.capabilities.disabled
+        type: string
+        flag: disable-cluster-capabilities
+        description: "Comma-separated capabilities to disable at cluster installation."
+        operations: [create]
+      - path: spec.hostedCluster.capabilities.enabled
+        type: string
+        flag: enable-cluster-capabilities
+        description: "Comma-separated capabilities to enable at cluster installation."
+        operations: [create]
       - path: spec.hostedCluster.configuration.machineConfig.allowedKernelArguments
         type: string
       - path: spec.hostedCluster.configuration.ingress.componentRoutes
@@ -43,6 +61,9 @@ resources:
         type: string
       - path: spec.hostedCluster.platform.aws.cloudProviderConfig.subnet.filters
         type: string
+      - path: spec.hostedCluster.platform.type
+        alias: type
+        flag: type
       - path: spec.hostedCluster.platform.aws.resourceTags
         type: string
       - path: spec.hostedCluster.platform.aws.serviceEndpoints
@@ -247,6 +268,10 @@ resources:
         flag: additional-security-group-ids
         description: "Additional AWS Security Group IDs to attach to node pool instances. Format should be a comma-separated list."
         operations: [create]
+
+      - path: spec.nodePool.platform.type
+        alias: platformType
+        flag: platform-type
 
       # ── Derived: no flag
       - path: spec.nodePool.clusterName

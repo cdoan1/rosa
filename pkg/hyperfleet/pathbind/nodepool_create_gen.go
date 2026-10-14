@@ -21,6 +21,8 @@ type NodePoolCreateInput struct {
 	AutoRepair                    *bool  `hfsdk:"spec.autoRepair"`
 	DisplayName                   string `hfsdk:"spec.displayName"`
 	Labels                        string `hfsdk:"spec.labels"`
+	MaxSurge                      string `hfsdk:"spec.maxSurge"`
+	MaxUnavailable                string `hfsdk:"spec.maxUnavailable"`
 	Max                           *int32 `hfsdk:"spec.nodePool.autoScaling.max"`
 	Min                           *int32 `hfsdk:"spec.nodePool.autoScaling.min"`
 	ClusterName                   string `hfsdk:"spec.nodePool.clusterName"`
@@ -38,11 +40,7 @@ type NodePoolCreateInput struct {
 	MaxPrice                      string `hfsdk:"spec.nodePool.platform.aws.placement.spot.maxPrice"`
 	Tenancy                       string `hfsdk:"spec.nodePool.platform.aws.placement.tenancy"`
 	ResourceTags                  string `hfsdk:"spec.nodePool.platform.aws.resourceTags"`
-	Encrypted                     *bool  `hfsdk:"spec.nodePool.platform.aws.rootVolume.encrypted"`
-	EncryptionKey                 string `hfsdk:"spec.nodePool.platform.aws.rootVolume.encryptionKey"`
-	Iops                          *int64 `hfsdk:"spec.nodePool.platform.aws.rootVolume.iops"`
 	Size                          *int64 `hfsdk:"spec.nodePool.platform.aws.rootVolume.size"`
-	RootVolumeType                string `hfsdk:"spec.nodePool.platform.aws.rootVolume.type"`
 	SecurityGroupIds              string `hfsdk:"spec.nodePool.platform.aws.securityGroups"`
 	Filters                       string `hfsdk:"spec.nodePool.platform.aws.subnet.filters"`
 	SubnetID                      string `hfsdk:"spec.nodePool.platform.aws.subnet.id"`
@@ -61,6 +59,8 @@ var NodePoolCreatePlatformAPIFlags = []string{
 	"auto-repair",
 	"display-name",
 	"labels",
+	"max-surge",
+	"max-unavailable",
 	"cluster-name",
 	"node-labels",
 	"ami",
@@ -74,11 +74,7 @@ var NodePoolCreatePlatformAPIFlags = []string{
 	"max-price",
 	"tenancy",
 	"resource-tags",
-	"encrypted",
-	"encryption-key",
-	"iops",
 	"size",
-	"root-volume-type",
 	"additional-security-group-ids",
 	"filters",
 	"subnet",
@@ -95,6 +91,8 @@ func RegisterNodePoolCreateFlags(cmd *cobra.Command, input *NodePoolCreateInput)
 	registerIfNew(f, "auto-repair", func() { input.AutoRepair = new(bool); f.BoolVar(input.AutoRepair, "auto-repair", false, "") })
 	registerIfNew(f, "display-name", func() { f.StringVar(&input.DisplayName, "display-name", "", "") })
 	registerIfNew(f, "labels", func() { f.StringVar(&input.Labels, "labels", "", "") })
+	registerIfNew(f, "max-surge", func() { f.StringVar(&input.MaxSurge, "max-surge", "", "") })
+	registerIfNew(f, "max-unavailable", func() { f.StringVar(&input.MaxUnavailable, "max-unavailable", "", "") })
 	registerIfNew(f, "cluster-name", func() { f.StringVar(&input.ClusterName, "cluster-name", "", "") })
 	registerIfNew(f, "node-labels", func() { f.StringVar(&input.NodeLabels, "node-labels", "", "") })
 	registerIfNew(f, "ami", func() { f.StringVar(&input.Ami, "ami", "", "") })
@@ -108,11 +106,7 @@ func RegisterNodePoolCreateFlags(cmd *cobra.Command, input *NodePoolCreateInput)
 	registerIfNew(f, "max-price", func() { f.StringVar(&input.MaxPrice, "max-price", "", "") })
 	registerIfNew(f, "tenancy", func() { f.StringVar(&input.Tenancy, "tenancy", "", "") })
 	registerIfNew(f, "resource-tags", func() { f.StringVar(&input.ResourceTags, "resource-tags", "", "") })
-	registerIfNew(f, "encrypted", func() { input.Encrypted = new(bool); f.BoolVar(input.Encrypted, "encrypted", false, "") })
-	registerIfNew(f, "encryption-key", func() { f.StringVar(&input.EncryptionKey, "encryption-key", "", "") })
-	registerIfNew(f, "iops", func() { input.Iops = new(int64); f.Int64Var(input.Iops, "iops", 0, "") })
 	registerIfNew(f, "size", func() { input.Size = new(int64); f.Int64Var(input.Size, "size", 0, "") })
-	registerIfNew(f, "root-volume-type", func() { f.StringVar(&input.RootVolumeType, "root-volume-type", "", "") })
 	registerIfNew(f, "additional-security-group-ids", func() {
 		f.StringVar(&input.SecurityGroupIds, "additional-security-group-ids", "", "Additional AWS Security Group IDs to attach to node pool instances. Format should be a comma-separated list.")
 	})
@@ -171,14 +165,6 @@ func normalizeNodePoolCreateInput(cmd *cobra.Command, input *NodePoolCreateInput
 	if cmd.Flags().Lookup("auto-repair") != nil && !cmd.Flag("auto-repair").Changed &&
 		input.AutoRepair != nil {
 		input.AutoRepair = nil
-	}
-	if cmd.Flags().Lookup("encrypted") != nil && !cmd.Flag("encrypted").Changed &&
-		input.Encrypted != nil {
-		input.Encrypted = nil
-	}
-	if cmd.Flags().Lookup("iops") != nil && !cmd.Flag("iops").Changed &&
-		input.Iops != nil {
-		input.Iops = nil
 	}
 	if cmd.Flags().Lookup("size") != nil && !cmd.Flag("size").Changed &&
 		input.Size != nil {

@@ -38,7 +38,11 @@ type ClusterCreateInput struct {
 	UnneededDurationSeconds        *int32 `hfsdk:"spec.hostedCluster.autoscaling.scaleDown.unneededDurationSeconds"`
 	UtilizationThresholdPercent    *int32 `hfsdk:"spec.hostedCluster.autoscaling.scaleDown.utilizationThresholdPercent"`
 	Scaling                        string `hfsdk:"spec.hostedCluster.autoscaling.scaling"`
+	Disabled                       string `hfsdk:"spec.hostedCluster.capabilities.disabled"`
+	Enabled                        string `hfsdk:"spec.hostedCluster.capabilities.enabled"`
 	Channel                        string `hfsdk:"spec.hostedCluster.channel"`
+	OidcProviders                  string `hfsdk:"spec.hostedCluster.configuration.authentication.oidcProviders"`
+	AuthenticationType             string `hfsdk:"spec.hostedCluster.configuration.authentication.type"`
 	ComponentRoutes                string `hfsdk:"spec.hostedCluster.configuration.ingress.componentRoutes"`
 	ContainerLogMaxFiles           *int32 `hfsdk:"spec.hostedCluster.configuration.kubelet.containerLogMaxFiles"`
 	ContainerLogMaxSize            string `hfsdk:"spec.hostedCluster.configuration.kubelet.containerLogMaxSize"`
@@ -112,6 +116,8 @@ var ClusterCreatePlatformAPIFlags = []string{
 	"autoscaler-max-nodes-total",
 	"autoscaler-max-pod-grace-period",
 	"autoscaler-pod-priority-threshold",
+	"disable-cluster-capabilities",
+	"enable-cluster-capabilities",
 	"channel",
 	"component-routes",
 	"container-log-max-files",
@@ -201,6 +207,12 @@ func RegisterClusterCreateFlags(cmd *cobra.Command, input *ClusterCreateInput) {
 	registerIfNew(f, "autoscaler-pod-priority-threshold", func() {
 		input.PodPriorityThreshold = new(int32)
 		f.Int32Var(input.PodPriorityThreshold, "autoscaler-pod-priority-threshold", 0, "")
+	})
+	registerIfNew(f, "disable-cluster-capabilities", func() {
+		f.StringVar(&input.Disabled, "disable-cluster-capabilities", "", "Comma-separated capabilities to disable at cluster installation.")
+	})
+	registerIfNew(f, "enable-cluster-capabilities", func() {
+		f.StringVar(&input.Enabled, "enable-cluster-capabilities", "", "Comma-separated capabilities to enable at cluster installation.")
 	})
 	registerIfNew(f, "channel", func() { f.StringVar(&input.Channel, "channel", "", "") })
 	registerIfNew(f, "component-routes", func() { f.StringVar(&input.ComponentRoutes, "component-routes", "", "") })

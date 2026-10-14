@@ -61,7 +61,7 @@ func runHyperfleetList(r *rosa.Runtime) {
 				subnetID = *np.Spec.NodePool.Platform.AWS.Subnet.ID
 			}
 		}
-		diskSize := hyperfleet.FormatNodePoolDiskSize(np.Spec.NodePool.Platform.AWS)
+		diskSize := hyperfleet.FormatHyperFleetNodePoolDiskSize(np.Spec.NodePool.Platform.AWS)
 		fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			string(np.UID),
 			np.Name,

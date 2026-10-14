@@ -186,6 +186,14 @@ func (h *hyperfleetClusterCreate) PreRequest(
 	if err := validateHyperfleetClusterProxyFlags(); err != nil {
 		return err
 	}
+	input.Disabled, err = encodeHyperfleetClusterCapabilities("disable-cluster-capabilities", input.Disabled)
+	if err != nil {
+		return err
+	}
+	input.Enabled, err = encodeHyperfleetClusterCapabilities("enable-cluster-capabilities", input.Enabled)
+	if err != nil {
+		return err
+	}
 
 	// OIDC config ID is optional but recommended
 	if args.oidcConfigId == "" {
@@ -393,6 +401,49 @@ func validateHyperfleetNetworkType(networkType string) error {
 		return nil
 	}
 	return fmt.Errorf("expected a valid network type. Valid values: [%s]", ocm.NetworkTypeOvn)
+}
+
+func encodeHyperfleetClusterCapabilities(flagName, value string) (string, error) {
+	if strings.TrimSpace(value) == "" {
+		return "", nil
+	}
+
+	validCapabilities := []hypershiftv1beta1.OptionalCapability{
+		hypershiftv1beta1.ImageRegistryCapability,
+		hypershiftv1beta1.OpenShiftSamplesCapability,
+		hypershiftv1beta1.InsightsCapability,
+		hypershiftv1beta1.BaremetalCapability,
+		hypershiftv1beta1.ConsoleCapability,
+		hypershiftv1beta1.NodeTuningCapability,
+		hypershiftv1beta1.IngressCapability,
+	}
+	validCapabilitySet := make(map[hypershiftv1beta1.OptionalCapability]struct{}, len(validCapabilities))
+	for _, capability := range validCapabilities {
+		validCapabilitySet[capability] = struct{}{}
+	}
+
+	capabilities := strings.Split(value, ",")
+	for i, rawCapability := range capabilities {
+		capability := hypershiftv1beta1.OptionalCapability(strings.TrimSpace(rawCapability))
+		if capability == "" {
+			return "", fmt.Errorf("--%s must be a comma-separated list of cluster capabilities", flagName)
+		}
+		if _, valid := validCapabilitySet[capability]; !valid {
+			validValues := make([]string, 0, len(validCapabilities))
+			for _, validCapability := range validCapabilities {
+				validValues = append(validValues, string(validCapability))
+			}
+			return "", fmt.Errorf("invalid capability %q for --%s; valid values are: %s",
+				capability, flagName, strings.Join(validValues, ", "))
+		}
+		capabilities[i] = string(capability)
+	}
+
+	encoded, err := json.Marshal(capabilities)
+	if err != nil {
+		return "", fmt.Errorf("failed to encode --%s: %w", flagName, err)
+	}
+	return string(encoded), nil
 }
 
 // isEmptyCIDR checks if a CIDR is empty (all zeros)

@@ -126,6 +126,8 @@
 - name: "component-routes"
 - name: "delete-protection"
 - name: "display-name"
+- name: "disable-cluster-capabilities"
+- name: "enable-cluster-capabilities"
 - name: "scheduler-profile"
 - name: "container-log-max-files"
 - name: "container-log-max-size"

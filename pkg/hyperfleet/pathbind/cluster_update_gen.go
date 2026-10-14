@@ -20,6 +20,8 @@ type ClusterUpdateInput struct {
 	Platform                       string `hfsdk:"spec.hostedCluster.autoNode.provisionerConfig.karpenter.platform"`
 	ProvisionerConfigName          string `hfsdk:"spec.hostedCluster.autoNode.provisionerConfig.name"`
 	Channel                        string `hfsdk:"spec.hostedCluster.channel"`
+	OidcProviders                  string `hfsdk:"spec.hostedCluster.configuration.authentication.oidcProviders"`
+	AuthenticationType             string `hfsdk:"spec.hostedCluster.configuration.authentication.type"`
 	ComponentRoutes                string `hfsdk:"spec.hostedCluster.configuration.ingress.componentRoutes"`
 	ContainerLogMaxFiles           *int32 `hfsdk:"spec.hostedCluster.configuration.kubelet.containerLogMaxFiles"`
 	ContainerLogMaxSize            string `hfsdk:"spec.hostedCluster.configuration.kubelet.containerLogMaxSize"`

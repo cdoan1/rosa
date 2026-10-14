@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	v1alpha1 "github.com/openshift-online/rosa-hyperfleet-api/api/v1alpha1/public"
 	hyperfleetclientset "github.com/openshift-online/rosa-hyperfleet-api/clientset"
 	"github.com/openshift-online/rosa-hyperfleet-api/clientset/platform"
 	hypershiftv1beta1 "github.com/openshift/hypershift/api/hypershift/v1beta1"
@@ -31,5 +32,17 @@ func FormatNodePoolDiskSize(aws *hypershiftv1beta1.AWSNodePoolPlatform) string {
 	if aws == nil || aws.RootVolume == nil || aws.RootVolume.Size <= 0 {
 		return ""
 	}
-	return fmt.Sprintf("%d GiB", aws.RootVolume.Size)
+	return formatNodePoolDiskSize(aws.RootVolume.Size)
+}
+
+// FormatHyperFleetNodePoolDiskSize returns the disk size column for a HyperFleet API node pool.
+func FormatHyperFleetNodePoolDiskSize(aws *v1alpha1.AWSNodePoolPlatform) string {
+	if aws == nil || aws.RootVolume == nil || aws.RootVolume.Size <= 0 {
+		return ""
+	}
+	return formatNodePoolDiskSize(aws.RootVolume.Size)
+}
+
+func formatNodePoolDiskSize(size int64) string {
+	return fmt.Sprintf("%d GiB", size)
 }

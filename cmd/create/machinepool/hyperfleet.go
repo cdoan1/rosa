@@ -338,7 +338,7 @@ func (h *hyperfleetNodePoolCreate) PostExpand(
 
 	// Ensure AWS platform is initialized
 	if obj.Spec.NodePool.Platform.AWS == nil {
-		obj.Spec.NodePool.Platform.AWS = &hypershiftv1beta1.AWSNodePoolPlatform{}
+		obj.Spec.NodePool.Platform.AWS = &v1alpha1.AWSNodePoolPlatform{}
 	}
 
 	obj.Spec.NodePool.Platform.AWS.InstanceProfile = instanceProfile
@@ -353,7 +353,7 @@ func (h *hyperfleetNodePoolCreate) PostExpand(
 			return fmt.Errorf("invalid --disk-size: %w", err)
 		}
 		if obj.Spec.NodePool.Platform.AWS.RootVolume == nil {
-			obj.Spec.NodePool.Platform.AWS.RootVolume = &hypershiftv1beta1.Volume{}
+			obj.Spec.NodePool.Platform.AWS.RootVolume = &v1alpha1.Volume{}
 		}
 		obj.Spec.NodePool.Platform.AWS.RootVolume.Size = int64(size)
 	}

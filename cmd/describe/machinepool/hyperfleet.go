@@ -9,7 +9,6 @@ import (
 
 	v1alpha1 "github.com/openshift-online/rosa-hyperfleet-api/api/v1alpha1/public"
 	"github.com/openshift-online/rosa-hyperfleet-api/clientset/platform"
-	hypershiftv1beta1 "github.com/openshift/hypershift/api/hypershift/v1beta1"
 
 	"github.com/openshift/rosa/pkg/hyperfleet"
 	"github.com/openshift/rosa/pkg/ocm"
@@ -84,7 +83,7 @@ func runHyperfleetDescribe(r *rosa.Runtime, userOptions *DescribeMachinepoolUser
 // hfSecurityGroupIDs extracts the additional security group IDs from an AWS node
 // pool platform spec, in the order the API returns them. Returns an empty (non-nil)
 // slice when aws is nil or no security groups are set.
-func hfSecurityGroupIDs(aws *hypershiftv1beta1.AWSNodePoolPlatform) []string {
+func hfSecurityGroupIDs(aws *v1alpha1.AWSNodePoolPlatform) []string {
 	sgIDs := make([]string, 0)
 	if aws == nil {
 		return sgIDs
@@ -110,7 +109,7 @@ func hfNodePoolToMap(np *v1alpha1.NodePool) map[string]interface{} {
 		if np.Spec.NodePool.Platform.AWS.Subnet.ID != nil {
 			subnetID = *np.Spec.NodePool.Platform.AWS.Subnet.ID
 		}
-		diskSize = hyperfleet.FormatNodePoolDiskSize(np.Spec.NodePool.Platform.AWS)
+		diskSize = hyperfleet.FormatHyperFleetNodePoolDiskSize(np.Spec.NodePool.Platform.AWS)
 	}
 	securityGroupIDs := hfSecurityGroupIDs(np.Spec.NodePool.Platform.AWS)
 
@@ -155,7 +154,7 @@ func hfNodePoolToString(np *v1alpha1.NodePool, clusterName string) string {
 		if aws.Subnet.ID != nil {
 			subnetID = *aws.Subnet.ID
 		}
-		diskSize = hyperfleet.FormatNodePoolDiskSize(aws)
+		diskSize = hyperfleet.FormatHyperFleetNodePoolDiskSize(aws)
 
 		// Spot instances
 		if aws.Placement != nil && aws.Placement.MarketType == "Spot" {
