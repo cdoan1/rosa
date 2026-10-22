@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	common "github.com/openshift-online/ocm-common/pkg/aws/validations"
 
 	awscb "github.com/openshift/rosa/pkg/aws/commandbuilder"
 	"github.com/openshift/rosa/pkg/aws/tags"
 	"github.com/openshift/rosa/pkg/helper"
+	urlHelper "github.com/openshift/rosa/pkg/helper/url"
 	"github.com/openshift/rosa/pkg/hyperfleet"
 	"github.com/openshift/rosa/pkg/interactive"
 	"github.com/openshift/rosa/pkg/rosa"
@@ -30,17 +32,9 @@ var (
 
 // getOidcConfigIssuerUrl retrieves the OIDC config issuer URL from the Platform API.
 // This is used in the hyperfleet v2 flow when creating operator roles with --oidc-config-id.
+// The config is resolved by its client-chosen metadata.name or its server-assigned UID,
+// matching the Platform API resource identity model.
 func getOidcConfigIssuerUrl(r *rosa.Runtime, oidcKey string) (string, error) {
-	if !hyperfleet.Enabled() {
-		// Fall back to OCM API for v1 flow
-		oidcConfig, err := r.OCMClient.GetOidcConfig(oidcKey)
-		if err != nil {
-			return "", err
-		}
-		return oidcConfig.IssuerUrl(), nil
-	}
-
-	// Platform API v2 flow
 	ctx := context.Background()
 	r.Reporter.Debugf("Retrieving OIDC config '%s' from Platform API", oidcKey)
 
@@ -147,6 +141,23 @@ func getHCPOperatorRoles() []operatorRoleSpec {
 	return roles
 }
 
+// oidcIssuerDomainFromUrl derives the OIDC issuer domain (host + path, without the
+// scheme) from the issuer URL. This matches how the AWS OIDC provider is registered
+// (see HasOpenIDConnectProvider and the v1 GenerateRolePolicyDoc), so the trust
+// policy always references the provider that was actually created. A naive
+// scheme-strip would diverge whenever the issuer carries a query string, fragment,
+// or trailing slash.
+func oidcIssuerDomainFromUrl(oidcIssuerUrl string) (string, error) {
+	parsedIssuerUrl, err := urlHelper.ParseRequestURI(oidcIssuerUrl)
+	if err != nil {
+		return "", err
+	}
+	if parsedIssuerUrl.Scheme != helper.ProtocolHttps {
+		return "", fmt.Errorf("expected OIDC issuer URL '%s' to use an https:// scheme", oidcIssuerUrl)
+	}
+	return parsedIssuerUrl.Host + parsedIssuerUrl.Path, nil
+}
+
 // runHyperfleetCreateOperatorRoles creates operator roles for hyperfleet v2 clusters.
 // Unlike v1 which uses OCM for policies, v2 uses AWS managed policies for HCP operator roles.
 func runHyperfleetCreateOperatorRoles(r *rosa.Runtime) {
@@ -158,6 +169,17 @@ func runHyperfleetCreateOperatorRoles(r *rosa.Runtime) {
 	}
 	if args.oidcConfigId == "" {
 		r.Reporter.Errorf("--oidc-config-id is required for operator role creation")
+		hfExitFn(1)
+		return
+	}
+	// A flag-like value means --oidc-config-id was passed without a value and the
+	// flag parser consumed the next flag as its value. This typically happens in
+	// automation when the OIDC config ID variable expands to nothing, and would
+	// otherwise surface later as a confusing lookup error for an ID such as '--mode'.
+	if strings.HasPrefix(args.oidcConfigId, "-") {
+		r.Reporter.Errorf("Expected an OIDC config ID for --%s, got '%s'; "+
+			"check that the --%s value was not omitted or empty",
+			OidcConfigIdFlag, args.oidcConfigId, OidcConfigIdFlag)
 		hfExitFn(1)
 		return
 	}
@@ -181,6 +203,7 @@ func runHyperfleetCreateOperatorRoles(r *rosa.Runtime) {
 	oidcIssuerUrl, err := getOidcConfigIssuerUrl(r, args.oidcConfigId)
 	if err != nil {
 		r.Reporter.Errorf("Failed to retrieve OIDC config: %v", err)
+		r.Reporter.Infof("Run 'rosa list oidc-config' to see the available OIDC configurations")
 		hfExitFn(1)
 		return
 	}
@@ -188,10 +211,12 @@ func runHyperfleetCreateOperatorRoles(r *rosa.Runtime) {
 	r.Reporter.Infof("  OIDC Issuer URL: %s", oidcIssuerUrl)
 	r.Reporter.Infof("  Mode: %s", mode)
 
-	// Get OIDC issuer domain (without https://)
-	oidcIssuerDomain := oidcIssuerUrl
-	if len(oidcIssuerUrl) > 8 && oidcIssuerUrl[:8] == "https://" {
-		oidcIssuerDomain = oidcIssuerUrl[8:]
+	// Get OIDC issuer domain (host + path, without the scheme)
+	oidcIssuerDomain, err := oidcIssuerDomainFromUrl(oidcIssuerUrl)
+	if err != nil {
+		r.Reporter.Errorf("%v", err)
+		hfExitFn(1)
+		return
 	}
 
 	// Get operator roles to create
