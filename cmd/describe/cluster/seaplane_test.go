@@ -275,6 +275,24 @@ var _ = Describe("seaplaneClusterToMap", func() {
 		Expect(roles).To(BeEmpty())
 	})
 
+	It("maps multi_arch_enabled from the AWS platform spec", func() {
+		c := buildCluster()
+		c.Spec.HostedCluster.Platform.AWS.MultiArch = true
+		m := seaplaneClusterToMap(c, nil, nil, "")
+		Expect(m).To(HaveKeyWithValue("multi_arch_enabled", true))
+
+		c = buildCluster()
+		m = seaplaneClusterToMap(c, nil, nil, "")
+		Expect(m).To(HaveKeyWithValue("multi_arch_enabled", false))
+	})
+
+	It("omits multi_arch_enabled when the AWS spec is absent", func() {
+		c := buildCluster()
+		c.Spec.HostedCluster.Platform.AWS = nil
+		m := seaplaneClusterToMap(c, nil, nil, "")
+		Expect(m).NotTo(HaveKey("multi_arch_enabled"))
+	})
+
 	It("maps nodes.compute_machine_type from default node pool instance type", func() {
 		c := buildCluster()
 		m := seaplaneClusterToMap(c, nil, nil, "m5.xlarge")

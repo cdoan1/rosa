@@ -369,6 +369,32 @@ var _ = Describe("runSeaplaneEdit (cluster)", func() {
 		Expect(func() { runSeaplaneEdit(t.RosaRuntime, makeExpirationCmd(true)) }).To(Panic())
 	})
 
+	It("enables multi-arch on the success path", func() {
+		ctrl := gomock.NewController(GinkgoT())
+		seaplaneClient, clusters := newEditClusterMocks(ctrl)
+
+		cluster := &v1alpha1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster1", UID: types.UID("cluster-uid")},
+			Spec:       v1alpha1.ClusterSpec{HostedCluster: v1alpha1.HostedClusterSpecPassthrough{}},
+		}
+		clusters.EXPECT().List(gomock.Any(), gomock.Any()).Return(
+			&v1alpha1.ClusterList{Items: []v1alpha1.Cluster{*cluster}}, nil)
+		clusters.EXPECT().Patch(gomock.Any(), "cluster1", types.MergePatchType, gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, _ string, _ types.PatchType, data []byte, _ interface{}) (*v1alpha1.Cluster, error) {
+				var body map[string]any
+				Expect(json.Unmarshal(data, &body)).To(Succeed())
+				spec := body["spec"].(map[string]any)
+				hc := spec["hostedCluster"].(map[string]any)
+				platform := hc["platform"].(map[string]any)
+				aws := platform["aws"].(map[string]any)
+				Expect(aws["multiArch"]).To(BeTrue())
+				return cluster, nil
+			})
+
+		t.RosaRuntime.SeaplaneClient = seaplaneClient
+		runSeaplaneEdit(t.RosaRuntime, makeMultiArchCmd(true))
+	})
+
 	It("updates cluster channel group on the success path", func() {
 		ctrl := gomock.NewController(GinkgoT())
 		seaplaneClient, clusters := newEditClusterMocks(ctrl)
@@ -529,6 +555,20 @@ func makeChannelGroupCmd(group string) *cobra.Command {
 	cmd.Flags().StringVar(&args.channelGroup, "channel-group", "", "")
 	if err := cmd.Flags().Set("channel-group", group); err != nil {
 		panic(err)
+	}
+	return cmd
+}
+
+// makeMultiArchCmd builds a minimal cobra command with the seaplane update
+// flags registered and --multi-arch optionally set.
+func makeMultiArchCmd(enabled bool) *cobra.Command {
+	cmd := &cobra.Command{Use: "test"}
+	cmd.SetContext(context.Background())
+	seaplanepathbind.RegisterClusterUpdateFlags(cmd, &seaplaneClusterUpdateInput)
+	if enabled {
+		if err := cmd.Flags().Set("multi-arch", "true"); err != nil {
+			panic(err)
+		}
 	}
 	return cmd
 }

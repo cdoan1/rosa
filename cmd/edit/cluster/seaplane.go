@@ -125,17 +125,18 @@ func (h *seaplaneClusterUpdate) PreRequest(ctx context.Context, r *rosa.Runtime,
 	schedulerProfileChanged := h.cmd.Flags().Changed("scheduler-profile")
 	additionalPrincipalsChanged := h.cmd.Flags().Changed("additional-allowed-principals")
 	spotTerminationQueueChanged := h.cmd.Flags().Changed("spot-termination-queue-url")
+	multiArchChanged := h.cmd.Flags().Changed("multi-arch")
 	if !h.cmd.Flags().Changed("expiration") && !h.cmd.Flags().Changed("expiration-time") && !tagsChanged &&
 		!h.cmd.Flags().Changed("delete-protection") &&
 		!channelChanged && !schedulerProfileChanged && !h.cmd.Flags().Changed("no-proxy") &&
 		!h.cmd.Flags().Changed("http-proxy") && !h.cmd.Flags().Changed("https-proxy") &&
 		!h.cmd.Flags().Changed("additional-trust-bundle-file") &&
-		!additionalPrincipalsChanged && !spotTerminationQueueChanged {
+		!additionalPrincipalsChanged && !spotTerminationQueueChanged && !multiArchChanged {
 		return fmt.Errorf(
 			"specify at least one supported flag: --expiration, --expiration-time, " +
 				"--tags, --delete-protection, --channel-group, --channel, --scheduler-profile, " +
 				"--http-proxy, --https-proxy, --no-proxy, --additional-trust-bundle-file, " +
-				"--additional-allowed-principals, --spot-termination-queue-url",
+				"--additional-allowed-principals, --spot-termination-queue-url, --multi-arch",
 		)
 	}
 
@@ -314,6 +315,12 @@ func (h *seaplaneClusterUpdate) buildSpecPatch(input *seaplanepathbind.ClusterUp
 	}
 	if h.cmd.Flags().Changed("spot-termination-queue-url") {
 		hostedClusterAWSPatch(spec)["terminationHandlerQueueURL"] = input.TerminationHandlerQueueURL
+	}
+	if h.cmd.Flags().Changed("multi-arch") {
+		if input.MultiArch == nil {
+			return nil, fmt.Errorf("multi-arch flag is set but value is missing")
+		}
+		hostedClusterAWSPatch(spec)["multiArch"] = *input.MultiArch
 	}
 	configuration := map[string]any{}
 	if h.cmd.Flags().Changed("scheduler-profile") {

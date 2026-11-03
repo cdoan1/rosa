@@ -840,17 +840,18 @@ var _ = Describe("Healthy check",
 				})
 
 			It("cluster is multiarch - [id:75108]",
-				labels.Runtime.Day1Post, labels.High, labels.FedRAMP, labels.Seaplane.Deferred,
+				labels.Runtime.Day1Post, labels.High, labels.FedRAMP, labels.Seaplane.Validated,
 				func() {
-					if os.Getenv("SEAPLANE_URL") != "" || seaplane.Enabled() {
-						Skip("V2 cluster describe does not expose multi_arch_enabled; an absent field must not count as false validation")
-					}
-
 					By("Check cluster is multiarch")
 					jsonData, err := clusterService.GetJSONClusterDescription(clusterID)
 					Expect(err).To(BeNil())
 					if isHosted {
+						// V1 describe reports the version as "openshift_version"; V2 (Platform
+						// API) reports it as "version.raw_id".
 						clusterVersion := jsonData.DigString("openshift_version")
+						if clusterVersion == "" {
+							clusterVersion = jsonData.DigString("version", "raw_id")
+						}
 						if clusterVersion >= "4.14" && !profile.ClusterConfig.FedRAMP {
 							Expect(jsonData.DigBool("multi_arch_enabled")).To(BeTrue())
 						} else {

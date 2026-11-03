@@ -311,6 +311,9 @@ func seaplaneClusterToMap(
 
 	if aws != nil {
 		m["region"] = aws.Region
+		// V1 (OCM) reports multi-arch enablement as a top-level cluster attribute;
+		// V2 derives it from the round-tripped spec field.
+		m["multi_arch_enabled"] = aws.MultiArch
 		if aws.CloudProviderConfig != nil {
 			m["vpc"] = aws.CloudProviderConfig.VPC
 			if aws.CloudProviderConfig.Subnet != nil && aws.CloudProviderConfig.Subnet.ID != nil {
